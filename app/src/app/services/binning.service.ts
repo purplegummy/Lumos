@@ -17,8 +17,8 @@ export class BinningService {
     const step = (max - min) / BIN_COUNT;
 
     return Array.from({ length: BIN_COUNT }, (_, i) => {
-      const lo = min + i * step;
-      const hi = min + (i + 1) * step;
+      const lo = min + (i * step);
+      const hi = min + ((i + 1) * step);
       // for each bin return a range of lo and hi, and a label like "20–60"
       return {
         lo,
