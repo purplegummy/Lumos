@@ -7,10 +7,10 @@ export interface Bin {
 export interface PriorBelief {
   datasetId: string;
   attribute: string;
-  binEdges: number[];   // length = binCount + 1
-  counts: number[];     // length = binCount, sums to ballCount
+  binEdges: number[];   
+  counts: number[];    
   ballCount: number;
-  columnHash: string;   // invalidate if column data changes
+  columnHash: string;  
   createdAt: number;
 }
 
