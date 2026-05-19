@@ -14,4 +14,3 @@ export interface PriorBelief {
   createdAt: number;
 }
 
-export type PriorBeliefKey = `${string}::${string}`; 

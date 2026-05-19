@@ -1,0 +1,43 @@
+<div class="modal-backdrop">
+  <div class="modal-panel">
+
+    <div class="modal-header">
+      <h2>Set Prior Beliefs</h2>
+      <button (click)="close()">✕</button>
+    </div>
+
+    <div class="modal-body">
+
+      <!-- if no attribute selected, show the list -->
+      <div *ngIf="!selectedAttribute">
+        <p>Select an attribute to set your prior belief:</p>
+        <ul class="attribute-list">
+          <li
+            *ngFor="let attr of attributes"
+            (click)="selectAttribute(attr)"
+            class="attribute-item"
+          >
+            <span *ngIf="hasPrior(attr)">✓ </span>{{ attr }}
+          </li>
+        </ul>
+      </div>
+
+      <!-- once the attribute is selected, show the grid -->
+      <div *ngIf="selectedAttribute">
+        <h3>{{ selectedAttribute }}</h3>
+        <p>Balls remaining: {{ remaining }}</p>
+        <app-balls-into-bins
+          [values]="currentValues"
+          (countsChange)="onCountsChange($event)"
+        ></app-balls-into-bins>
+
+        <div class="modal-actions">
+          <button (click)="selectedAttribute = null">Back</button>
+          <button (click)="save()" [disabled]="remaining > 0">Save</button>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</div>

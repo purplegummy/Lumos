@@ -1,0 +1,15 @@
+<div class="balls-into-bins">
+  <div class="remaining">Balls remaining: {{ getRemaining() }}</div>
+
+  <div class="grid">
+    <app-bin-column
+      *ngFor="let bin of bins; let i = index"
+      [bin]="bin"
+      [count]="counts[i]"
+      [maxBalls]="100"
+      [remaining]="getRemaining()"
+      (increment)="increment(i)"
+      (decrement)="decrement(i)"
+    ></app-bin-column>
+  </div>
+</div>

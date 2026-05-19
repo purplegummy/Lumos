@@ -1,14 +1,14 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import { map } from 'rxjs/operators';
-import { PriorBelief, PriorBeliefKey } from '../models/prior-belief';
+import { PriorBelief } from '../models/prior-belief';
 
 const STORAGE_KEY = 'lumos:priors';
 
 @Injectable({ providedIn: 'root' })
 export class PriorBeliefStore {
 
-  private priors$ = new BehaviorSubject<Record<PriorBeliefKey, PriorBelief>>(this.loadFromStorage());
+  private priors$ = new BehaviorSubject<Record<string, PriorBelief>>(this.loadFromStorage());
 
   all$ = this.priors$.asObservable();
 
@@ -36,7 +36,7 @@ export class PriorBeliefStore {
     this.saveToStorage(next);
   }
 
-  private loadFromStorage(): Record<PriorBeliefKey, PriorBelief> {
+  private loadFromStorage(): Record<string, PriorBelief> {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       return raw ? JSON.parse(raw) : {};
@@ -45,7 +45,7 @@ export class PriorBeliefStore {
     }
   }
 
-  private saveToStorage(priors: Record<PriorBeliefKey, PriorBelief>): void {
+  private saveToStorage(priors: Record<string, PriorBelief>): void {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(priors));
   }
 }

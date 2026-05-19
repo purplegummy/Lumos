@@ -20,6 +20,9 @@ import { MessageService } from "./services/message.service";
 import { ChatService } from "./services/socket.service";
 import { UtilsService } from "./services/utils.service";
 import { MainActivityComponent } from "./main-activity/component";
+import { BinColumnComponent } from "./components/prior/ballsbins/bincol";
+import { BallsIntoBinsComponent } from "./components/prior/ballsbins/bib";
+import { ElicitationModalComponent } from "./components/prior/modal/modal";
 
 const config: SocketIoConfig = {
   url: DeploymentConfig.SERVER_URL,
@@ -29,7 +32,10 @@ const config: SocketIoConfig = {
 @NgModule({
   declarations: [
     AppComponent,
-    MainActivityComponent
+    MainActivityComponent,
+    BinColumnComponent,
+    BallsIntoBinsComponent,
+    ElicitationModalComponent
   ],
   imports: [
     NgMultiSelectDropDownModule.forRoot(),
