@@ -1,0 +1,41 @@
+import { Component, EventEmitter, Input, Output, OnInit} from '@angular/core';
+import { Bin } from '../../../models/prior-belief';
+import { BinningService } from 'src/app/services/binning.service';
+@Component({
+  selector: 'app-balls-into-bins',
+  templateUrl: './bib.html',
+  styleUrls: ['./bib.css']
+})
+export class BallsIntoBinsComponent implements OnInit {
+  @Input() values: number[] = [];
+  @Input() initialCounts: number[] = [];
+  @Output() countsChange = new EventEmitter<number[]>();
+
+  bins: Bin[] = [];
+  counts: number[] = [];
+
+  constructor(private binningService: BinningService) {}
+
+  ngOnInit() {
+    if (this.values.length > 0) {
+      this.bins = this.binningService.computeBins(this.values);
+    }
+    this.counts = this.initialCounts.length > 0 ? this.initialCounts.slice() : this.binningService.emptyBallCounts();
+  }
+  getRemaining(): number {
+    return this.binningService.ballCount - this.counts.reduce((a, b) => a + b, 0);
+  }
+
+ increment(index: number) {
+    if (this.getRemaining() === 0) return;
+    this.counts = this.counts.map((c, i) => i === index ? c + 1 : c);
+    this.countsChange.emit(this.counts);
+  }
+
+  decrement(index: number) {
+    if (this.counts[index] === 0) return;
+    this.counts = this.counts.map((c, i) => i === index ? c - 1 : c);
+    this.countsChange.emit(this.counts);
+  }
+
+}

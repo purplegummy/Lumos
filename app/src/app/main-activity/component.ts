@@ -17,7 +17,7 @@ import { DotPlot } from "../visualizations/main/dot-plot-component";
 import { BarChart } from "../visualizations/main/bar-chart-component";
 import { LineChart } from "../visualizations/main/line-chart-component";
 import { AttributeDistributionPlotConfig } from "../visualizations/awareness/component";
-
+import { PriorBeliefStore } from "../store/prior-belief.store";
 window.addEventListener("beforeunload", function (e) {
   // Cancel the event
   e.preventDefault(); // If you prevent default behavior in Mozilla Firefox prompt will always be shown
@@ -52,6 +52,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   plotWidth: number;
   plotHeight: number;
   plotGroup: any;
+  showPriorModal = false;
 
   constructor(
     private route: ActivatedRoute,
@@ -59,7 +60,9 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     public chatService: ChatService,
     private router: Router,
     public global: SessionPage,
-    private sanitizer: DomSanitizer
+    private sanitizer: DomSanitizer,
+    private priorStore: PriorBeliefStore
+
   ) {
     this.objectKeys = Object.keys; // to help iterate over objects with *ngFor
     this.objectValues = Object.values; // to help iterate over objects with *ngFor
@@ -96,6 +99,18 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     this.plotWidth = null;
     this.plotHeight = null;
     this.plotGroup = null;
+  }
+
+  /** ====================== PRIOR ELICITATION METHODS ====================== */
+  getColumnValues(): Record<string, number[]> {
+    const data = this.userConfig["originalDataset"]; // the loaded CSV rows
+    if (!data) return {}; // data not loaded yet
+    const qAttrs = this.appConfig[this.global.appMode]?.attributeDatatypeList?.Q || []; // only quantitative attributes
+    const result: Record<string, number[]> = {}; // dictionary of column name to array of values for that column
+    qAttrs.forEach(attr => {
+      result[attr] = data.map(row => row[attr]).filter(v => v != null); // extract all values for this column, drop nulls
+    });
+    return result;
   }
 
   /** ====================== INITIALIZATION METHODS ======================= */
@@ -336,6 +351,11 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
         }
       });
     });
+    // Once lumos is initialized, check if there are existing priors for the dataset. If not, show the elicitation modal.
+    if (!this.priorStore.hasPriorsFor(this.global.appMode)) {
+      this.showPriorModal = true;
+    }
+
   }
 
   /** ========================= UPDATE METHODS ============================ */

@@ -214,6 +214,14 @@
                 </div>
               </div>
             </article>
+            <div style="padding: 8px">
+              <h5 style="margin-bottom: 6px">
+                <span class="badge badge-secondary">Prior Belief</span>
+              </h5>
+              <button class="btn btn-light btn-sm btn-block" (click)="showPriorModal = true">
+                Set Prior Beliefs
+              </button>
+            </div>
           </div>
         </as-split-area>
       </as-split>
@@ -893,4 +901,12 @@
       </as-split>
     </as-split-area>
   </as-split>
+
+  <app-elicitation-modal
+    *ngIf="showPriorModal"
+    [datasetId]="global.appMode"
+    [attributes]="appConfig[global.appMode]?.attributeDatatypeList?.Q || []"
+    [columnValues]="getColumnValues()"
+    (closed)="showPriorModal = false"
+  ></app-elicitation-modal>
 </div>
