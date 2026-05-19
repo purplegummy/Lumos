@@ -14,7 +14,13 @@ export class BinColumnComponent {
   @Output() increment = new EventEmitter<void>();
   @Output() decrement = new EventEmitter<void>();
 
-  ballArray(): number[] {
-    return new Array(this.count).fill(0);
+  leftCol(): number[] {
+    const half = Math.ceil(this.count / 2);
+    return new Array(this.count > 6 ? half : this.count).fill(0);
+  }
+
+  rightCol(): number[] {
+    if (this.count <= 6) return [];
+    return new Array(Math.floor(this.count / 2)).fill(0);
   }
 }

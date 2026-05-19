@@ -23,7 +23,9 @@ export class BinningService {
       return {
         lo,
         hi,
-        label: `${this.fmt(lo)}–${this.fmt(hi)}`,
+        label: step >= 1
+          ? `${Math.round(lo)}–${Math.round(hi) - 1}`
+          : `${this.fmt(lo, step)}–${this.fmt(hi, step)}`,
       };
     });
   }
@@ -32,7 +34,9 @@ export class BinningService {
     return new Array(BIN_COUNT).fill(0);
   }
 
-  private fmt(n: number): string {
-    return n % 1 === 0 ? `${n}` : n.toFixed(1);
+  private fmt(n: number, step: number): string {
+    if (step >= 1) return `${Math.round(n)}`;
+    if (step >= 0.1) return n.toFixed(1);
+    return n.toFixed(2);
   }
 }

@@ -8,6 +8,7 @@ import { BinningService } from 'src/app/services/binning.service';
 })
 export class BallsIntoBinsComponent implements OnInit {
   @Input() values: number[] = [];
+  @Input() initialCounts: number[] = [];
   @Output() countsChange = new EventEmitter<number[]>();
 
   bins: Bin[] = [];
@@ -19,7 +20,7 @@ export class BallsIntoBinsComponent implements OnInit {
     if (this.values.length > 0) {
       this.bins = this.binningService.computeBins(this.values);
     }
-    this.counts = this.binningService.emptyBallCounts();
+    this.counts = this.initialCounts.length > 0 ? this.initialCounts.slice() : this.binningService.emptyBallCounts();
   }
   getRemaining(): number {
     return this.binningService.ballCount - this.counts.reduce((a, b) => a + b, 0);

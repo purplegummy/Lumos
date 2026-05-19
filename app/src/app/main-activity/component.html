@@ -214,6 +214,11 @@
                 </div>
               </div>
             </article>
+            <div style="padding: 8px">
+              <button class="btn btn-light btn-sm btn-block" (click)="showPriorModal = true">
+                Set Prior Beliefs
+              </button>
+            </div>
           </div>
         </as-split-area>
       </as-split>
@@ -893,9 +898,12 @@
       </as-split>
     </as-split-area>
   </as-split>
+
+  <app-elicitation-modal
+    *ngIf="showPriorModal"
+    [datasetId]="global.appMode"
+    [attributes]="appConfig[global.appMode]?.attributeDatatypeList?.Q || []"
+    [columnValues]="getColumnValues()"
+    (closed)="showPriorModal = false"
+  ></app-elicitation-modal>
 </div>
-<app-elicitation-modal
-  [datasetId]="'test-dataset'"
-  [attributes]="['Annual Income', 'Age', 'Credit Score']"
-  [columnValues]="{ 'Annual Income': [20000, 50000, 80000, 120000] }"
-></app-elicitation-modal>

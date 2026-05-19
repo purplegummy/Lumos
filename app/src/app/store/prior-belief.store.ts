@@ -12,7 +12,10 @@ export class PriorBeliefStore {
 
   all$ = this.priors$.asObservable();
 
-  // to know when to show the modal
+  hasPriorsFor(datasetId: string): boolean {
+    return Object.keys(this.priors$.value).some(k => k.startsWith(`${datasetId}::`));
+  }
+
   hasPriorsFor$(datasetId: string) {
     return this.priors$.pipe(
       map(priors => Object.keys(priors).some(k => k.startsWith(`${datasetId}::`)))

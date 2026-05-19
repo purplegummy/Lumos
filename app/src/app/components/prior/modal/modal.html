@@ -1,42 +1,64 @@
 <div class="modal-backdrop">
   <div class="modal-panel">
 
+    <!-- Header -->
     <div class="modal-header">
-      <h2>Set Prior Beliefs</h2>
-      <button (click)="close()">✕</button>
+      <div class="modal-header-left">
+        <div *ngIf="!selectedAttribute">
+          <div class="modal-title">Prior Beliefs · <span class="modal-title-attr">{{ datasetId }}</span></div>
+          <div class="modal-subtitle">Pick an attribute to distribute your beliefs.</div>
+        </div>
+        <div *ngIf="selectedAttribute">
+          <div class="modal-title">
+            Distribute your beliefs for <span class="modal-title-attr">{{ selectedAttribute }}</span>
+          </div>
+          <div class="modal-subtitle">Place all {{ binningService.ballCount }} balls into the bins below.</div>
+        </div>
+      </div>
+
+      <div *ngIf="selectedAttribute" class="modal-balls-counter" [class.complete]="remaining === 0">
+        <span class="modal-balls-count">{{ remaining }}</span>
+        <span class="modal-balls-label">balls left</span>
+      </div>
+
+      <button class="modal-close" (click)="close()">✕</button>
     </div>
 
+    <!-- Body -->
     <div class="modal-body">
 
-      <!-- if no attribute selected, show the list -->
+      <!-- Step 1: attribute picker -->
       <div *ngIf="!selectedAttribute">
-        <p>Select an attribute to set your prior belief:</p>
         <ul class="attribute-list">
           <li
             *ngFor="let attr of attributes"
             (click)="selectAttribute(attr)"
             class="attribute-item"
+            [class.done]="hasPrior(attr)"
           >
             <span *ngIf="hasPrior(attr)">✓ </span>{{ attr }}
           </li>
         </ul>
       </div>
 
-      <!-- once the attribute is selected, show the grid -->
+      <!-- Step 2: histogram -->
       <div *ngIf="selectedAttribute">
-        <h3>{{ selectedAttribute }}</h3>
-        <p>Balls remaining: {{ remaining }}</p>
-        <app-balls-into-bins
-          [values]="currentValues"
-          (countsChange)="onCountsChange($event)"
-        ></app-balls-into-bins>
-
-        <div class="modal-actions">
-          <button (click)="selectedAttribute = null">Back</button>
-          <button (click)="save()" [disabled]="remaining > 0">Save</button>
+        <div class="histogram-box">
+          <app-balls-into-bins
+            [values]="currentValues"
+            [initialCounts]="draftCounts"
+            (countsChange)="onCountsChange($event)"
+          ></app-balls-into-bins>
         </div>
       </div>
 
+    </div>
+
+    <!-- Footer -->
+    <div class="modal-footer">
+      <button *ngIf="selectedAttribute" (click)="selectedAttribute = null">Back</button>
+      <button *ngIf="!selectedAttribute" (click)="close()">Cancel</button>
+      <button *ngIf="selectedAttribute" class="primary" (click)="save()" [disabled]="remaining > 0">Save & continue</button>
     </div>
 
   </div>

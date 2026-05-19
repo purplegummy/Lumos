@@ -1,15 +1,19 @@
 <div class="bin-column">
-    <!-- Where the balls are rendered -->
   <div class="ball-stack">
-    <div *ngFor="let ball of ballArray()" class="ball"></div>
+    <div class="ball-col">
+      <div *ngFor="let ball of leftCol()" class="ball"></div>
+    </div>
+    <div class="ball-col" *ngIf="rightCol().length > 0">
+      <div *ngFor="let ball of rightCol()" class="ball"></div>
+    </div>
   </div>
 
+  <div class="bin-floor"></div>
 
-  <!-- Controls for add/removing balls from a column -->
   <div class="controls">
-    <button (click)="increment.emit()" [disabled]="remaining === 0">+</button>
-    <span class="count">{{ count }}</span>
     <button (click)="decrement.emit()" [disabled]="count === 0">−</button>
+    <span class="count">{{ count }}</span>
+    <button (click)="increment.emit()" [disabled]="remaining === 0">+</button>
   </div>
 
   <div class="label">{{ bin.label }}</div>

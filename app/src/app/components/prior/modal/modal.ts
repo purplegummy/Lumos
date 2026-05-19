@@ -20,7 +20,7 @@ export class ElicitationModalComponent {
 
   constructor(
     private store: PriorBeliefStore,
-    private binningService: BinningService
+    public binningService: BinningService
   ) {}
 
   get currentValues(): number[] {
@@ -34,7 +34,8 @@ export class ElicitationModalComponent {
 
   selectAttribute(attr: string) {
     this.selectedAttribute = attr;
-    this.draftCounts = this.binningService.emptyBallCounts();
+    const existing = this.store.getBelief(this.datasetId, attr);
+    this.draftCounts = existing ? existing.counts.slice() : this.binningService.emptyBallCounts();
   }
 
   onCountsChange(counts: number[]) {
