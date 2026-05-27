@@ -4,10 +4,11 @@
       *ngFor="let bin of bins; let i = index"
       [bin]="bin"
       [count]="counts[i]"
-      [maxBalls]="100"
+      [maxBalls]="binningService.ballCount"
       [remaining]="getRemaining()"
       (increment)="increment(i)"
       (decrement)="decrement(i)"
+      (setCount)="setCount(i, $event)"
     ></app-bin-column>
   </div>
 </div>

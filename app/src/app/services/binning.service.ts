@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { Bin } from '../models/prior-belief';
 
 const BIN_COUNT = 10;
-const BALL_COUNT = 100;
+const BALL_COUNT = 30;
 
 @Injectable({ providedIn: 'root' })
 export class BinningService {
@@ -20,13 +20,10 @@ export class BinningService {
       const lo = min + (i * step);
       const hi = min + ((i + 1) * step);
       // for each bin return a range of lo and hi, and a label like "20–60"
-      const isLast = i === BIN_COUNT - 1;
       return {
         lo,
         hi,
-        label: step >= 1
-          ? `${Math.round(lo)}–${isLast ? Math.round(hi) : Math.round(hi) - 1}`
-          : `${this.fmt(lo, step)}–${this.fmt(hi, step)}`,
+        label: `${this.fmt(lo, step)}–${this.fmt(hi, step)}`,
       };
     });
   }
@@ -36,8 +33,9 @@ export class BinningService {
   }
 
   private fmt(n: number, step: number): string {
-    if (step >= 1) return `${Math.round(n)}`;
-    if (step >= 0.1) return n.toFixed(1);
-    return n.toFixed(2);
+    if (step >= 10)  return n.toFixed(0);
+    if (step >= 1)   return n.toFixed(1);
+    if (step >= 0.1) return n.toFixed(2);
+    return n.toFixed(3);
   }
 }

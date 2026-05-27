@@ -12,6 +12,7 @@ export class PriorBeliefStore {
 
   all$ = this.priors$.asObservable();
 
+  // Checks if there are any priors for a given dataset + attribute, used to show completed status in ui
   hasPriorsFor(datasetId: string): boolean {
     return Object.keys(this.priors$.value).some(k => k.startsWith(`${datasetId}::`));
   }
@@ -22,6 +23,7 @@ export class PriorBeliefStore {
     );
   }
 
+  // used in ui to load existing priors into the elicitation modal when a user clicks on an attribute
   getBelief(datasetId: string, attribute: string): PriorBelief | undefined {
     return this.priors$.value[`${datasetId}::${attribute}`];
   }
@@ -32,6 +34,7 @@ export class PriorBeliefStore {
     this.saveToStorage(next);
   }
 
+  // used to reset 
   removeBelief(datasetId: string, attribute: string): void {
     const next = { ...this.priors$.value };
     delete next[`${datasetId}::${attribute}`];
