@@ -1,11 +1,15 @@
 <div class="bin-column">
-  <div class="ball-stack">
-    <div class="ball-col">
-      <div *ngFor="let ball of leftCol()" class="ball"></div>
-    </div>
-    <div class="ball-col" *ngIf="rightCol().length > 0">
-      <div *ngFor="let ball of rightCol()" class="ball"></div>
-    </div>
+
+  <div class="grid">
+    <div
+      *ngFor="let row of rows"
+      class="cell"
+      [class.filled]="isFilled(row)"
+      [class.clickable]="isClickable(row)"
+      [class.unreachable]="!isClickable(row)"
+      (mousedown)="onMouseDown(row)"
+      (mouseenter)="onMouseEnter(row)"
+    ></div>
   </div>
 
   <div class="bin-floor"></div>

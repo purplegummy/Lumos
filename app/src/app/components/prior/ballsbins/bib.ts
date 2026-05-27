@@ -14,7 +14,7 @@ export class BallsIntoBinsComponent implements OnInit {
   bins: Bin[] = [];
   counts: number[] = [];
 
-  constructor(private binningService: BinningService) {}
+  constructor(public binningService: BinningService) {}
 
   ngOnInit() {
     if (this.values.length > 0) {
@@ -35,6 +35,13 @@ export class BallsIntoBinsComponent implements OnInit {
   decrement(index: number) {
     if (this.counts[index] === 0) return;
     this.counts = this.counts.map((c, i) => i === index ? c - 1 : c);
+    this.countsChange.emit(this.counts);
+  }
+
+  setCount(index: number, value: number) {
+    const delta = value - this.counts[index];
+    if (delta > 0 && delta > this.getRemaining()) return;
+    this.counts = this.counts.map((c, i) => i === index ? value : c);
     this.countsChange.emit(this.counts);
   }
 

@@ -6,28 +6,39 @@
   min-width: 0;
 }
 
-.ball-stack {
+.grid {
   display: flex;
-  flex-direction: row;
-  align-items: flex-end;
-  justify-content: center;
-  gap: 2px;
-  height: 350px;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
 }
 
-.ball-col {
-  display: flex;
-  flex-direction: column-reverse;
-  gap: 2px;
-}
-
-.ball {
-  width: 10px;
-  height: 10px;
+.cell {
+  width: 100%;
+  max-width: 14px;
+  height: 14px;
   border-radius: 50%;
-  background-color: #3a6ea5;
+  background: #e0e0e0;
+  box-sizing: border-box;
+  margin: 0 auto;
+}
+
+.cell.filled {
+  background: #3a6ea5;
   border: 1px solid #1a1a1a;
-  flex-shrink: 0;
+}
+
+.cell.clickable {
+  cursor: pointer;
+}
+
+.cell.clickable:hover {
+  opacity: 0.7;
+}
+
+.cell.unreachable {
+  opacity: 0.25;
+  cursor: not-allowed;
 }
 
 .bin-floor {

@@ -37,13 +37,6 @@
   flex: 1;
 }
 
-.modal-title {
-  font-size: 1.1rem;
-  font-weight: 500;
-  color: #1a1a1a;
-  line-height: 1.4;
-}
-
 .modal-title-attr {
   display: inline-block;
   padding: 1px 10px;
@@ -71,20 +64,9 @@
   flex-shrink: 0;
 }
 
-.modal-balls-counter.complete {
-  background: #dcefd8;
-}
-
-.modal-balls-count {
-  font-size: 1.2rem;
-  font-weight: 600;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-.modal-balls-label {
-  font-size: 0.75rem;
-  color: #1a1a1a;
-}
+.modal-balls-counter.complete { background: #dcefd8; }
+.modal-balls-count { font-size: 1.2rem; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+.modal-balls-label { font-size: 0.75rem; color: #1a1a1a; }
 
 .modal-close {
   background: none;

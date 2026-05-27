@@ -1,7 +1,7 @@
 <div class="modal-backdrop">
   <div class="modal-panel">
 
-    <!-- Header -->
+    <!-- header -->
     <div class="modal-header">
       <div class="modal-header-left">
         <div *ngIf="!selectedAttribute">
@@ -24,10 +24,10 @@
       <button class="modal-close" (click)="close()">✕</button>
     </div>
 
-    <!-- Body -->
+
     <div class="modal-body">
 
-      <!-- Step 1: attribute picker -->
+      <!-- attribute picker -->
       <div *ngIf="!selectedAttribute">
         <ul class="attribute-list">
           <li
@@ -41,7 +41,7 @@
         </ul>
       </div>
 
-      <!-- Step 2: histogram -->
+      <!--  balls and bins ui -->
       <div *ngIf="selectedAttribute">
         <div class="histogram-box">
           <app-balls-into-bins
@@ -54,7 +54,7 @@
 
     </div>
 
-    <!-- Footer -->
+    <!-- footer -->
     <div class="modal-footer">
       <button *ngIf="selectedAttribute" (click)="selectedAttribute = null">Back</button>
       <button *ngIf="!selectedAttribute" (click)="close()">Cancel</button>
