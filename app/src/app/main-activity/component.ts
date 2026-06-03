@@ -350,12 +350,9 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
           context.updateVis();
         }
       });
-    });
-    // Once lumos is initialized, check if there are existing priors for the dataset. If not, show the elicitation modal.
-    if (!this.priorStore.hasPriorsFor(this.global.appMode)) {
-      this.showPriorModal = true;
-    }
 
+      context.showPriorModal = true;
+    });
   }
 
   /** ========================= UPDATE METHODS ============================ */
