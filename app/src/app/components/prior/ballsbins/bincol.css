@@ -73,11 +73,14 @@
 }
 
 .count {
+  display: inline-block;
   font-size: 0.75rem;
   font-family: 'JetBrains Mono', monospace;
   min-width: 18px;
   text-align: center;
+  transition: transform 80ms ease-out;
 }
+
 
 .label {
   font-size: 0.65rem;

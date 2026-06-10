@@ -19,8 +19,32 @@ export class BinColumnComponent implements OnChanges {
   rows: number[] = [];
   dragging = false;
 
+  private holdTimeout: any = null;
+  private holdInterval: any = null;
+
   ngOnChanges() {
     this.rows = Array.from({ length: this.maxBalls }, (_, i) => this.maxBalls - i);
+  }
+
+  // fire once immediately, then repeat after a short delay while held
+  startHold(action: 'increment' | 'decrement') {
+    this.fireAction(action);
+    this.holdTimeout = setTimeout(() => {
+      this.holdInterval = setInterval(() => this.fireAction(action), 80);
+    }, 400);
+  }
+
+  // clean up timers when the button is released or the cursor leaves
+  stopHold() {
+    clearTimeout(this.holdTimeout);
+    clearInterval(this.holdInterval);
+    this.holdTimeout = null;
+    this.holdInterval = null;
+  }
+
+  private fireAction(action: 'increment' | 'decrement') {
+    if (action === 'increment') this.increment.emit();
+    else this.decrement.emit();
   }
 
   isFilled(row: number): boolean {
@@ -45,6 +69,7 @@ export class BinColumnComponent implements OnChanges {
     this.dragging = false;
   }
 
+  // click on a ball to set the count up until that row for a column
   private trySet(row: number) {
     if (!this.isClickable(row)) return;
     this.setCount.emit(row);

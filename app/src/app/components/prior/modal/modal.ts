@@ -37,13 +37,21 @@ export class ElicitationModalComponent {
     const existing = this.store.getBelief(this.datasetId, attr);
     this.draftCounts = existing ? existing.counts.slice() : this.binningService.emptyBallCounts();
   }
+  // a and b classes alternate to trigger CSS animations on count change
+  counterClass: 'pop-a' | 'pop-b' = 'pop-a';
 
   onCountsChange(counts: number[]) {
     this.draftCounts = counts;
+    this.counterClass = this.counterClass === 'pop-a' ? 'pop-b' : 'pop-a';
   }
 
   hasPrior(attr: string): boolean {
     return !!this.store.getBelief(this.datasetId, attr);
+  }
+  // resets the counts for the currently selected attribute to empty
+  // does not remove from store
+  reset() {
+    this.draftCounts = this.binningService.emptyBallCounts();
   }
 
   save() {

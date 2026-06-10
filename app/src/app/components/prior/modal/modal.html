@@ -17,7 +17,7 @@
       </div>
 
       <div *ngIf="selectedAttribute" class="modal-balls-counter" [class.complete]="remaining === 0">
-        <span class="modal-balls-count">{{ remaining }}</span>
+        <span class="modal-balls-count" [ngClass]="counterClass">{{ remaining }}</span>
         <span class="modal-balls-label">balls left</span>
       </div>
 
@@ -43,6 +43,7 @@
 
       <!--  balls and bins ui -->
       <div *ngIf="selectedAttribute">
+        <button class="reset-link" (click)="reset()">↺ Reset</button>
         <div class="histogram-box">
           <app-balls-into-bins
             [values]="currentValues"
