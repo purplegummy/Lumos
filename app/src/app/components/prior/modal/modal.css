@@ -17,12 +17,11 @@
   border-radius: 4px;
   width: 90vw;
   max-width: 1000px;
-  max-height: 95vh;
-  overflow-y: auto;
+  overflow: visible;
   box-shadow: 6px 6px 0 rgba(0,0,0,0.12);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 8px;
   padding: 22px;
 }
 
@@ -65,7 +64,18 @@
 }
 
 .modal-balls-counter.complete { background: #dcefd8; }
-.modal-balls-count { font-size: 1.2rem; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+.modal-balls-count {
+  display: inline-block;
+  font-size: 1.2rem;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+@keyframes pop-odd  { 0% { transform: scale(1.35); } 100% { transform: scale(1); } }
+@keyframes pop-even { 0% { transform: scale(1.35); } 100% { transform: scale(1); } }
+
+.modal-balls-count.pop-a { animation: pop-odd  160ms ease-out; }
+.modal-balls-count.pop-b { animation: pop-even 160ms ease-out; }
 .modal-balls-label { font-size: 0.75rem; color: #1a1a1a; }
 
 .modal-close {
@@ -81,7 +91,21 @@
 .modal-body {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 8px;
+}
+
+.attr-group-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #8a8a85;
+  margin-bottom: 6px;
+  margin-top: 10px;
+}
+
+.attr-group-label:first-child {
+  margin-top: 0;
 }
 
 .attribute-list {
@@ -112,6 +136,25 @@
   color: white;
 }
 
+.reset-link {
+  display: block;
+  margin-left: auto;
+  margin-bottom: 10px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #555;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.reset-link:hover {
+  color: #1a1a1a;
+}
+
 .histogram-box {
   padding: 14px 12px 10px;
   background: #fafaf6;
@@ -119,6 +162,8 @@
   border-radius: 4px;
   overflow-x: auto;
   overflow-y: hidden;
+  display: flex;
+  justify-content: center;
 }
 
 .modal-back-title {
@@ -133,7 +178,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  padding-top: 14px;
+  padding-top: 8px;
   border-top: 1px dashed #8a8a85;
 }
 

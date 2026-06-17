@@ -32,6 +32,19 @@ export class BinningService {
     return new Array(BIN_COUNT).fill(0);
   }
 
+  emptyCountsFor(n: number): number[] {
+    return new Array(n).fill(0);
+  }
+
+  categoricalBins(categories: string[]): Bin[] {
+    return categories.map((cat, i) => ({ lo: i, hi: i + 1, label: cat }));
+  }
+  // formatting the label of bin based on step size
+  // step >= 10: no decimal places
+  // step >= 1: 1 decimal place
+  // step >= 0.1: 2 decimal places
+  // step < 0.1: 3 decimal places
+  
   private fmt(n: number, step: number): string {
     if (step >= 10)  return n.toFixed(0);
     if (step >= 1)   return n.toFixed(1);
