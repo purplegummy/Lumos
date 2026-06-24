@@ -201,3 +201,77 @@
   background: #1a1a1a;
   color: white;
 }
+
+.confidence-step {
+  padding: 20px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.confidence-scale-labels {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 0.75rem;
+  color: #8a8a85;
+}
+
+.confidence-step {
+  padding: 8px 0;
+}
+
+.confidence-scale {
+  display: flex;
+  align-items: center;
+}
+
+.confidence-col {
+  flex: 1;
+  min-width: 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+
+.confidence-col-header {
+  font-size: 0.78rem;
+  color: #444;
+  text-align: center;
+  padding-bottom: 6px;
+}
+
+.confidence-row {
+  background: #f8f8f8;
+  border-radius: 4px;
+  padding: 8px 0;
+}
+
+.confidence-row-label {
+  font-size: 0.82rem;
+  color: #333;
+  padding-left: 4px;
+}
+
+.confidence-circle {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #888;
+  background: white;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.confidence-col:hover .confidence-circle:not(.selected) {
+  border-color: #1a1a1a;
+  background: #f0f0f0;
+}
+
+.confidence-circle.selected {
+  background: #1a1a1a;
+  border-color: #1a1a1a;
+}

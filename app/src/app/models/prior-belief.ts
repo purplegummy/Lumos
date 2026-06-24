@@ -12,6 +12,7 @@ export interface PriorBelief {
   ballCount: number;
   columnHash: string;
   createdAt: number;
+  confidence?: number;    // 1–7 Likert scale, set after elicitation
   categories?: string[];  // present for categorical attributes; one entry per bin
 }
 

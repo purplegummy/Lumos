@@ -20,6 +20,17 @@ export class ElicitationModalComponent {
 
   selectedAttribute: string | null = null;
   draftCounts: number[] = [];
+  confidenceStep = false;
+  confidenceRating: number | null = null;
+  confidenceHover: number | null = null;
+  confidenceOptions = [
+    { value: 1, label: 'Not at all' },
+    { value: 2, label: 'Slightly' },
+    { value: 3, label: 'Somewhat' },
+    { value: 4, label: 'Quite' },
+    { value: 5, label: 'Extremely' },
+  ];
+  private pendingBelief: PriorBelief | null = null;
 
   constructor(
     private store: PriorBeliefStore,
@@ -52,6 +63,8 @@ export class ElicitationModalComponent {
 
   selectAttribute(attr: string) {
     this.selectedAttribute = attr;
+    this.confidenceStep = false;
+    this.confidenceRating = null;
     const existing = this.store.getBelief(this.datasetId, attr);
     if (existing) {
       this.draftCounts = existing.counts.slice();
@@ -108,10 +121,15 @@ export class ElicitationModalComponent {
         createdAt: Date.now()
       };
     }
+    this.pendingBelief = belief;
+    this.confidenceStep = true;
+    this.confidenceRating = null;
+  }
+
+  submitConfidence() {
+    if (!this.pendingBelief || this.confidenceRating === null) return;
+    const belief = { ...this.pendingBelief, confidence: this.confidenceRating };
     this.store.setBelief(belief);
-    // Incrementally transport the just-saved prior to the server (Option A) so
-    // it's available to the JS confirmation-bias metric. Keyed by attribute
-    // server-side, last-write-wins.
     this.chatService.sendPriors({
       participantId: this.global.participantId,
       appMode: this.global.appMode,
@@ -119,11 +137,19 @@ export class ElicitationModalComponent {
       appLevel: this.global.appLevel,
       priors: belief,
     });
+    this.pendingBelief = null;
+    this.confidenceStep = false;
+    this.confidenceRating = null;
     this.selectedAttribute = null;
     this.draftCounts = [];
   }
 
+  get canClose(): boolean {
+    return this.allAttributes.some(attr => this.hasPrior(attr));
+  }
+
   close() {
+    if (!this.canClose) return;
     this.closed.emit();
   }
 }

@@ -53,6 +53,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   plotHeight: number;
   plotGroup: any;
   showPriorModal = false;
+  private _lastLoggedChartType: string | null = undefined;
 
   constructor(
     private route: ActivatedRoute,

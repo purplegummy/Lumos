@@ -8,22 +8,25 @@
           <div class="modal-title">Prior Beliefs · <span class="modal-title-attr">{{ datasetId }}</span></div>
           <div class="modal-subtitle">Pick an attribute to distribute your beliefs.</div>
         </div>
-        <div *ngIf="selectedAttribute">
+        <div *ngIf="selectedAttribute && !confidenceStep">
           <div class="modal-title">
             Distribute your beliefs for <span class="modal-title-attr">{{ selectedAttribute }}</span>
           </div>
           <div class="modal-subtitle">Place all {{ binningService.ballCount }} balls into the bins below.</div>
         </div>
+        <div *ngIf="selectedAttribute && confidenceStep">
+          <div class="modal-title">How confident are you?</div>
+          <div class="modal-subtitle">Rate your confidence in your prior for <span class="modal-title-attr">{{ selectedAttribute }}</span>.</div>
+        </div>
       </div>
 
-      <div *ngIf="selectedAttribute" class="modal-balls-counter" [class.complete]="remaining === 0">
+      <div *ngIf="selectedAttribute && !confidenceStep" class="modal-balls-counter" [class.complete]="remaining === 0">
         <span class="modal-balls-count" [ngClass]="counterClass">{{ remaining }}</span>
         <span class="modal-balls-label">balls left</span>
       </div>
 
-      <button class="modal-close" (click)="close()">✕</button>
+      <button class="modal-close" (click)="close()" [disabled]="!canClose" [title]="canClose ? '' : 'Set at least one prior belief before closing'">✕</button>
     </div>
-
 
     <div class="modal-body">
 
@@ -57,8 +60,8 @@
         </div>
       </div>
 
-      <!--  balls and bins ui -->
-      <div *ngIf="selectedAttribute">
+      <!-- balls and bins ui -->
+      <div *ngIf="selectedAttribute && !confidenceStep">
         <button class="reset-link" (click)="reset()">↺ Reset</button>
         <div class="histogram-box">
           <app-balls-into-bins
@@ -70,13 +73,31 @@
         </div>
       </div>
 
+      <!-- confidence step -->
+      <div *ngIf="selectedAttribute && confidenceStep" class="confidence-step">
+        <div class="confidence-scale">
+          <div class="confidence-col" *ngFor="let opt of confidenceOptions">
+            <span class="confidence-col-header">{{ opt.label }}</span>
+          </div>
+        </div>
+        <div class="confidence-scale confidence-row">
+          <div class="confidence-col" *ngFor="let opt of confidenceOptions" (click)="confidenceRating = opt.value">
+            <div class="confidence-circle" [class.selected]="confidenceRating === opt.value"></div>
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <!-- footer -->
     <div class="modal-footer">
-      <button *ngIf="selectedAttribute" (click)="selectedAttribute = null">Back</button>
-      <button *ngIf="!selectedAttribute" (click)="close()">Cancel</button>
-      <button *ngIf="selectedAttribute" class="primary" (click)="save()" [disabled]="remaining > 0">Save & continue</button>
+      <button *ngIf="selectedAttribute && !confidenceStep" (click)="selectedAttribute = null">Back</button>
+      <button *ngIf="selectedAttribute && confidenceStep" (click)="confidenceStep = false">Back</button>
+      <button *ngIf="!selectedAttribute" (click)="close()" [disabled]="!canClose">
+        {{ canClose ? 'Close' : 'Set at least one prior to continue' }}
+      </button>
+      <button *ngIf="selectedAttribute && !confidenceStep" class="primary" (click)="save()" [disabled]="remaining > 0">Save & continue</button>
+      <button *ngIf="selectedAttribute && confidenceStep" class="primary" (click)="submitConfidence()" [disabled]="confidenceRating === null">Confirm</button>
     </div>
 
   </div>
