@@ -16,7 +16,7 @@ export class SessionPage {
   "app-practice": object = { completed: false, timestamp: 0 };
   "app-live": object = { completed: false, timestamp: 0 };
   "participantId": string = participantId; // 12 character long unique identifier
-  "appMode": string = "credit_risk.csv"; // Name of the dataset
+  "appMode": string = "mental_health_data.csv"; // Name of the dataset
   "appLevel": string = "live"; // Practice / Live
   // "appType": string = this.utils.generateRandomAppType(); // CONTROL / AWARENESS
   "appType": string = "AWARENESS"; // CONTROL | ADMIN | AWARENESS
@@ -940,6 +940,96 @@ export const AppConfig = {
       },
       "Loan Intent": {
         name: "Loan Intent",
+        datatype: "N",
+        types: [],
+        filterModel: [],
+      },
+    },
+  },
+  /**
+   * 8. Mental Health data set
+   */
+  "mental_health_data.csv": {
+    dataset: "mental_health_data.csv",
+    primaryKey: "id",
+    labelKey: "",
+    orderedAttributeList: [
+      "id",
+      "child_age_years",
+      "child_sex",
+      "screen_time_weekday",
+      "hours_sleep_weeknight",
+      "days_physical_activity_week",
+      "difficulty_making_friends",
+      "ever_diagnosed_depression",
+      "ever_diagnosed_anxiety",
+      "ever_diagnosed_dep_or_anx",
+    ],
+    attributes: {
+      child_age_years: {
+        name: "child_age_years",
+        datatype: "Q",
+        max: -Infinity,
+        step: 1,
+        min: Infinity,
+        filterModel: [0, 1],
+      },
+      screen_time_weekday: {
+        name: "screen_time_weekday",
+        datatype: "Q",
+        max: -Infinity,
+        step: 1,
+        min: Infinity,
+        filterModel: [0, 1],
+      },
+      hours_sleep_weeknight: {
+        name: "hours_sleep_weeknight",
+        datatype: "Q",
+        max: -Infinity,
+        step: 1,
+        min: Infinity,
+        filterModel: [0, 1],
+      },
+      days_physical_activity_week: {
+        name: "days_physical_activity_week",
+        datatype: "Q",
+        max: -Infinity,
+        step: 1,
+        min: Infinity,
+        filterModel: [0, 1],
+      },
+      id: {
+        name: "id",
+        datatype: "N",
+        types: [],
+        filterModel: [],
+      },
+      child_sex: {
+        name: "child_sex",
+        datatype: "N",
+        types: [],
+        filterModel: [],
+      },
+      difficulty_making_friends: {
+        name: "difficulty_making_friends",
+        datatype: "N",
+        types: [],
+        filterModel: [],
+      },
+      ever_diagnosed_depression: {
+        name: "ever_diagnosed_depression",
+        datatype: "N",
+        types: [],
+        filterModel: [],
+      },
+      ever_diagnosed_anxiety: {
+        name: "ever_diagnosed_anxiety",
+        datatype: "N",
+        types: [],
+        filterModel: [],
+      },
+      ever_diagnosed_dep_or_anx: {
+        name: "ever_diagnosed_dep_or_anx",
         datatype: "N",
         types: [],
         filterModel: [],
