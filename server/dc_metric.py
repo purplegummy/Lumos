@@ -1,4 +1,5 @@
-"""Data-point confirmation-bias (DC) metric -- OFFLINE module.
+"""Data-point confirmation-bias (DC) metric; offline first, online after elicitation
+is finished
 
 This is a standalone, pure-Python module. It is intentionally NOT wired into
 the live request path (compute_metrics / server.py); this pass is the math plus
@@ -50,15 +51,14 @@ CONVENTIONS / CHOICES (flagged for review)
   * vba uses NATURAL log (np.log). The base only rescales A uniformly; natural
     log keeps it consistent with the nats used in the JS core. Change here if
     the analysis wants log2.
-  * alpha = 0.5 additive smoothing in vba (Shiyao, per meeting) -- avoids
+  * alpha = 0.5 additive smoothing in vba -- avoids
     log(0)/divide-by-zero for empty elicited bins and shrinks extreme A for
     sparsely-filled bins.
   * js_distance is the SQUARE ROOT of the normalized JS divergence (the proper
     metric form), NOT the inverted js_confirmation_score (1 - D/ln2). High =
     distributions differ; identical distributions -> 0.
   * real_time_bias and overall_interaction_bias / selection_bias use ALL 200
-    teens as the baseline mean, even under active filters (Shiyao override of
-    the slide's "available at time t" baseline; see real_time_bias).
+    teens as the baseline mean, even under active filters
 """
 import math
 
@@ -72,7 +72,7 @@ from js_divergence import EPSILON, _LN2, _kl, _normalize
 LABEL_ATTR = "ever_diagnosed_dep_or_anx"
 DIAGNOSED_VALUE = "Yes"
 
-# Additive smoothing for the variable-bin association (vba). Shiyao, per meeting.
+# Additive smoothing for the variable-bin association (vba)
 DEFAULT_ALPHA = 0.5
 
 
@@ -287,8 +287,7 @@ def _mean_all(dcs):
 def real_time_bias(dcs, interacted_ids):
     """mean(DC over interacted) - mean(DC over ALL teens).
 
-    Baseline is ALL teens even when filters are active. This is Shiyao's
-    override of the slide's "data points available at time t" baseline: the
+    Baseline is ALL teens even when filters are active. The
     comparison is always against the full population, so filtering does not
     move the goalposts. Returns 0.0 if no interactions (documented).
     """
