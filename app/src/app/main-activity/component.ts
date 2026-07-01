@@ -72,6 +72,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     this.math = Math; // to help iterate over objects with *ngFor
     this.userConfig = UserConfig; // access all user settings here
     this.appConfig = initializeAppModes(AppConfig); // access all app settings here
+    this.appConfig["mental_health_data.csv"]["chartType"] = "scatterplot";
     this.currentPlotType = null; // default plot type
     this.currentPlotInstance = null; // default plot instance
     this.scatterPlotInstance = createPlotInstance(this, ScatterPlot);
@@ -160,7 +161,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     if (!data) return {};
     const dtl = this.appConfig[this.global.appMode]?.attributeDatatypeList;
     if (!dtl) return {};
-    const catAttrs: string[] = (dtl['N'] || []).concat(dtl['O'] || []).filter((a: string) => a !== 'id');
+    const catAttrs: string[] = (dtl['N'] || []).concat(dtl['O'] || []).filter((a: string) => a !== 'id' && a !== 'ever_diagnosed_dep_or_anx');
     const result: Record<string, string[]> = {};
     catAttrs.forEach(attr => {
       const seen = new Set<string>();
@@ -333,6 +334,11 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
       //  (otherwise this does nothing)
       initializePlotInstance(context, context.currentPlotType);
       context.updateVis();
+      // re-initialize after layout settles so container has correct dimensions
+      setTimeout(() => {
+        initializePlotInstance(context, context.currentPlotType);
+        context.updateVis();
+      }, 150);
 
       /** Connect to Server to Send/Receive Messages over WebSocket */
       context.chatService.removeAllListenersAndDisconnectFromSocket();
