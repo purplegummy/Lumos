@@ -249,19 +249,6 @@
               <!-- Content -->
               <div>
                 <form>
-                  <!-- OPTION: Chart Type (hidden in CONTROL mode — locked to scatterplot) -->
-                  <div *ngIf="global.appLayout !== 'CONTROL'" class="row mb-sm">
-                    <label class="col-sm-4 col-form-label">Chart</label>
-                    <div class="col-sm-8">
-                      <ng-select name="chartSelect" [searchable]="false" appendTo="body"
-                        [(ngModel)]="appConfig[global.appMode]['chartType']" (change)="onChangeChart($event)"
-                        (clear)="onChangeChart($event, true)">
-                        <ng-option *ngFor="let c of userConfig['charts']" [value]="c">
-                          {{userConfig['chartMapping'][c]}}
-                        </ng-option>
-                      </ng-select>
-                    </div>
-                  </div>
 
                   <!-- OPTION: X Attribute -->
                   <div class="row mb-sm">
@@ -273,7 +260,7 @@
                         <!-- Q => Quantitative -->
                         <ng-container *ngFor="let x of appConfig[global.appMode].attributeDatatypeList['Q']">
                           <ng-option
-                            *ngIf="x !== appConfig[global.appMode].primaryKey && x !== appConfig[global.appMode].labelKey"
+                            *ngIf="x !== appConfig[global.appMode].primaryKey && x !== appConfig[global.appMode].labelKey && x !== 'ever_diagnosed_dep_or_anx'"
                             [value]="x">
                             &#xf292; {{x}}
                           </ng-option>
@@ -281,7 +268,7 @@
                         <!-- T => Temporal -->
                         <ng-container *ngFor="let x of appConfig[global.appMode].attributeDatatypeList['T']">
                           <ng-option
-                            *ngIf="x !== appConfig[global.appMode].primaryKey && x !== appConfig[global.appMode].labelKey"
+                            *ngIf="x !== appConfig[global.appMode].primaryKey && x !== appConfig[global.appMode].labelKey && x !== 'ever_diagnosed_dep_or_anx'"
                             [value]="x">
                             &#xf133; {{x}}
                           </ng-option>
@@ -289,7 +276,7 @@
                         <!-- O => Ordinal -->
                         <ng-container *ngFor="let x of appConfig[global.appMode].attributeDatatypeList['O']">
                           <ng-option
-                            *ngIf="x !== appConfig[global.appMode].primaryKey && x !== appConfig[global.appMode].labelKey"
+                            *ngIf="x !== appConfig[global.appMode].primaryKey && x !== appConfig[global.appMode].labelKey && x !== 'ever_diagnosed_dep_or_anx'"
                             [value]="x">
                             &#xf031; {{x}}
                           </ng-option>
@@ -297,7 +284,7 @@
                         <!-- N => Nominal -->
                         <ng-container *ngFor="let x of appConfig[global.appMode].attributeDatatypeList['N']">
                           <ng-option
-                            *ngIf="x !== appConfig[global.appMode].primaryKey && x !== appConfig[global.appMode].labelKey"
+                            *ngIf="x !== appConfig[global.appMode].primaryKey && x !== appConfig[global.appMode].labelKey && x !== 'ever_diagnosed_dep_or_anx'"
                             [value]="x">
                             &#xf031; {{x}}
                           </ng-option>
