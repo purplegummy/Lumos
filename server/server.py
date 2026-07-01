@@ -116,7 +116,7 @@ async def on_save_logs(sid, data):
                 print(f"Saved priors to file: {priors_filename}")
             firebase_logger.save_priors(pid, priors)
 
-def ensure_client(sid, pid, app_mode, app_type, app_level):
+def ensure_client(sid, pid, app_mode, app_type, app_level, participant_id_source="random"):
     """Get-or-create the per-participant record, applying dataset/level resets.
 
     Shared by on_interaction and on_commit_priors so both entry points
@@ -137,6 +137,7 @@ def ensure_client(sid, pid, app_mode, app_type, app_level):
         CLIENTS[pid]["app_type"] = app_type
         CLIENTS[pid]["app_level"] = app_level
         CLIENTS[pid]["connected_at"] = bias_util.get_current_time()
+        CLIENTS[pid]["participant_id_source"] = participant_id_source
         CLIENTS[pid]["bias_logs"] = []
         CLIENTS[pid]["response_list"] = []
         CLIENTS[pid]["priors"] = {}  # {attribute: PriorBelief}, last-write-wins
@@ -155,32 +156,43 @@ def ensure_client(sid, pid, app_mode, app_type, app_level):
     return CLIENTS[pid]
 
 
-@SIO.event
+@SIO.on('on_commit_priors')
 async def on_commit_priors(sid, data):
-    """Receive elicited prior beliefs and stash them per-participant.
+    """Receive elicited prior beliefs and stash them per-participant."""
+    print(f"[on_commit_priors] received from sid={sid}")
+    try:
+        app_mode = data["appMode"]
+        app_type = data.get("appType")
+        app_level = data.get("appLevel")
+        pid = data["participantId"]
+        pid_source = data.get("participantIdSource", "random")
 
-    Emitted by the frontend each time the user saves a prior in the
-    balls-into-bins modal (incremental, one attribute at a time). Stored under
-    CLIENTS[pid]["priors"] keyed by attribute, last-write-wins, so they are
-    available to bias.compute_metrics() for the JS confirmation-bias metric.
-    """
-    app_mode = data["appMode"]
-    app_type = data.get("appType")
-    app_level = data.get("appLevel")
-    pid = data["participantId"]
+        client = ensure_client(sid, pid, app_mode, app_type, app_level, pid_source)
 
-    client = ensure_client(sid, pid, app_mode, app_type, app_level)
+        incoming = data.get("priors", [])
+        if isinstance(incoming, dict):
+            incoming = [incoming]
+        for belief in incoming:
+            condition = belief.get("condition", "default")
+            key = f"{belief['attribute']}::{condition}"
+            print(f"[on_commit_priors] attribute={belief.get('attribute')} condition={condition} key={key}")
+            client["priors"][key] = belief
 
-    # Accept either a single PriorBelief or a list, keyed by attribute.
-    incoming = data.get("priors", [])
-    if isinstance(incoming, dict):
-        incoming = [incoming]
-    for belief in incoming:
-        client["priors"][belief["attribute"]] = belief
+        print(f"[on_commit_priors] priors keys now: {sorted(client['priors'].keys())}")
+        firebase_logger.save_priors(pid, client["priors"])
+        firebase_logger.save_meta(pid, client)
+    except Exception as e:
+        print(f"[on_commit_priors] ERROR: {e}", flush=True)
+        raise
 
-    print(f"Committed priors for {pid} ({app_mode}): {sorted(client['priors'].keys())}")
-    firebase_logger.save_priors(pid, client["priors"])
-    firebase_logger.save_meta(pid, client)
+
+@SIO.on('on_selected_subjects')
+async def on_selected_subjects(sid, data):
+    pid = data.get("participantId")
+    subjects = data.get("selected_subjects", [])
+    if pid:
+        firebase_logger.save_selected_subjects(pid, subjects)
+        print(f"Selected subjects for {pid}: {subjects}")
 
 
 @SIO.event
@@ -189,9 +201,10 @@ async def on_interaction(sid, data):
     app_type = data["appType"]  # CONTROL / AWARENESS / ADMIN
     app_level = data["appLevel"]  # live / practice
     pid = data["participantId"]
+    pid_source = data.get("participantIdSource", "random")
     interaction_type = data["interactionType"] # Interaction type - eg. hover, click
 
-    ensure_client(sid, pid, app_mode, app_type, app_level)
+    ensure_client(sid, pid, app_mode, app_type, app_level, pid_source)
 
     # record response to interaction
     response = {}
