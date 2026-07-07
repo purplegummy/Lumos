@@ -11,6 +11,8 @@ from aiohttp_index import IndexMiddleware
 import bias
 import bias_util
 import firebase_logger
+import dc_metric
+import dc_adapter
 
 # Set the path for the Google Cloud Logging logger
 currdir = Path(__file__).parent.absolute()
@@ -181,6 +183,28 @@ async def on_commit_priors(sid, data):
         print(f"[on_commit_priors] priors keys now: {sorted(client['priors'].keys())}")
         firebase_logger.save_priors(pid, client["priors"])
         firebase_logger.save_meta(pid, client)
+
+        # --- DC map: compute ONCE all six variables have BOTH conditions ------
+        # Reshape stored priors via the adapter (guards incomplete vars + asserts
+        # shared bins). When ready, compute the per-teen DC map a single time and
+        # cache it on the client record for compute_metrics to read live.
+        ready, beliefs, report = dc_adapter.is_ready(client["priors"])
+        print(f"[DC] {pid}: {len(report['complete'])}/{dc_adapter.EXPECTED_VARIABLE_COUNT} "
+              f"variables complete {report['complete']}"
+              + (f" | incomplete-so-far {report['skipped_incomplete']}" if report['skipped_incomplete'] else ""),
+              flush=True)
+        if ready:
+            teens = bias.DATA_MAP.get(app_mode, {}).get("data", {})
+            sample = next(iter(teens.values()), {})
+            if teens and dc_metric.LABEL_ATTR in sample:
+                dmap = dc_metric.dc_map(teens, beliefs)
+                client["dc_map"] = dmap
+                mean_dc = sum(dmap.values()) / len(dmap) if dmap else 0.0
+                print(f"[DC] DC map computed for {pid}: {len(dmap)} teens, "
+                      f"mean DC {mean_dc:.4f} (vars: {report['complete']})", flush=True)
+            else:
+                print(f"[DC] {pid}: dataset '{app_mode}' has no '{dc_metric.LABEL_ATTR}' "
+                      f"label column; skipping DC map.", flush=True)
     except Exception as e:
         print(f"[on_commit_priors] ERROR: {e}", flush=True)
         raise
@@ -221,6 +245,23 @@ async def on_interaction(sid, data):
     if interaction_type in COMPUTE_BIAS_FOR_TYPES:
         CLIENTS[pid]["bias_logs"].append(data)
         metrics = bias.compute_metrics(app_mode, CLIENTS[pid]["bias_logs"], CLIENTS[pid]["priors"])
+
+        # --- DC phase metrics: read the CACHED dc_map (never recompute here) ---
+        # Present only once elicitation is complete; absent/None otherwise (not
+        # an error). Ids come from the same bias_logs the JS metric consumes.
+        dc_map_cached = CLIENTS[pid].get("dc_map")
+        if dc_map_cached:
+            dc_bias = dc_adapter.compute_phase_metrics(dc_map_cached, CLIENTS[pid]["bias_logs"])
+            metrics["dc_bias"] = dc_bias
+            print(f"[DC] pid={pid} | n_logs={len(CLIENTS[pid]['bias_logs'])} | "
+                  f"real_time={dc_bias['real_time_bias']:+.4f} "
+                  f"overall={dc_bias['overall_interaction_bias']:+.4f} "
+                  f"selection={dc_bias['selection_bias']:+.4f} "
+                  f"(interacted={dc_bias['n_interacted']}, selected={dc_bias['n_selected']})",
+                  flush=True)
+        else:
+            metrics["dc_bias"] = None
+
         response["output_data"] = metrics
 
         # === JS DEBUG (toggle via JS_DEBUG flag near top of file) === start
