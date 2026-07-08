@@ -139,10 +139,16 @@
   color: white;
 }
 
+.preset-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
 .reset-link {
   display: block;
-  margin-left: auto;
-  margin-bottom: 10px;
+  margin-bottom: 0;
   background: none;
   border: none;
   padding: 0;
@@ -164,7 +170,7 @@
   border: 1.5px solid #dddddd;
   border-radius: 4px;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible;
   display: flex;
   justify-content: center;
 }
@@ -270,4 +276,37 @@
 .partial-check {
   color: #aaa;
   font-weight: 600;
+}
+
+.step-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: #fff3a8;
+  border: 1.5px solid #1a1a1a;
+  border-radius: 3px;
+  padding: 1px 6px;
+  margin-right: 8px;
+  vertical-align: middle;
+  letter-spacing: 0.03em;
+  color: #1a1a1a;
+}
+
+.completion-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 0;
+}
+
+.completion-icon {
+  font-size: 2.5rem;
+  color: #2e7d32;
+}
+
+.completion-message {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1a1a1a;
 }

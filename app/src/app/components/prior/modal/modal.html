@@ -5,19 +5,20 @@
     <div class="modal-header">
       <div class="modal-header-left">
 
-        <!-- attribute picker -->
-        <div *ngIf="!selectedAttribute">
-          <div class="modal-title">Prior Beliefs · <span class="modal-title-attr">{{ datasetId }}</span></div>
-          <div class="modal-subtitle">Pick an attribute to distribute your beliefs.</div>
+        <!-- completion state -->
+        <div *ngIf="done">
+          <div class="modal-title">All done!</div>
+          <div class="modal-subtitle">Your prior beliefs have been recorded for all attributes.</div>
         </div>
 
         <!-- distribution step -->
-        <div *ngIf="selectedAttribute && !confidenceStep">
+        <div *ngIf="!done && !confidenceStep">
           <div class="modal-title">
-            <span class="condition-step-badge">{{ conditionStep }} / 2</span>
+            <span class="step-badge">Step {{ currentStep }} of {{ totalSteps }}</span>
             {{ cleanAttr(selectedAttribute) }}
           </div>
           <div class="modal-instruction">
+            <span class="condition-step-badge">{{ conditionStep }} / 2</span>
             Think only about the <span class="condition-highlight">{{ conditionLabel }}</span>.
             Below are ranges of <strong>{{ cleanAttr(selectedAttribute) }}</strong>.
             You have <strong>{{ binningService.ballCount }} tokens</strong> — place them across the ranges to show
@@ -27,12 +28,13 @@
         </div>
 
         <!-- confidence step -->
-        <div *ngIf="selectedAttribute && confidenceStep">
+        <div *ngIf="!done && confidenceStep">
           <div class="modal-title">
-            <span class="condition-step-badge">{{ conditionStep }} / 2</span>
+            <span class="step-badge">Step {{ currentStep }} of {{ totalSteps }}</span>
             How confident are you?
           </div>
           <div class="modal-instruction">
+            <span class="condition-step-badge">{{ conditionStep }} / 2</span>
             Rate your confidence in this distribution for
             <strong>{{ cleanAttr(selectedAttribute) }}</strong> among the
             <span class="condition-highlight">{{ conditionLabel }}</span>.
@@ -41,53 +43,28 @@
 
       </div>
 
-      <div *ngIf="selectedAttribute && !confidenceStep" class="modal-balls-counter" [class.complete]="remaining === 0">
+      <div *ngIf="!done && !confidenceStep" class="modal-balls-counter" [class.complete]="remaining === 0">
         <span class="modal-balls-count" [ngClass]="counterClass">{{ remaining }}</span>
         <span class="modal-balls-label">tokens left</span>
       </div>
 
-      <button class="modal-close" (click)="close()" [disabled]="!canClose" [title]="canClose ? '' : 'Set at least one prior belief before closing'">✕</button>
+      <button class="modal-close" (click)="close()" [disabled]="!canClose" [title]="canClose ? '' : 'Complete all steps before closing'">✕</button>
     </div>
 
     <div class="modal-body">
 
-      <!-- attribute picker list -->
-      <div *ngIf="!selectedAttribute">
-        <div *ngIf="attributes.length > 0">
-          <div class="attr-group-label">Quantitative</div>
-          <ul class="attribute-list">
-            <li
-              *ngFor="let attr of attributes"
-              (click)="selectAttribute(attr)"
-              class="attribute-item"
-              [class.done]="hasPrior(attr)"
-            >
-              <span *ngIf="hasPrior(attr)">✓ </span>
-              <span *ngIf="!hasPrior(attr) && hasConditionPrior(attr, 'diagnosed')" class="partial-check">½ </span>
-              {{ cleanAttr(attr) }}
-            </li>
-          </ul>
-        </div>
-        <div *ngIf="(categoricalValues | keyvalue).length > 0" style="margin-top: 12px">
-          <div class="attr-group-label">Categorical</div>
-          <ul class="attribute-list">
-            <li
-              *ngFor="let entry of categoricalValues | keyvalue"
-              (click)="selectAttribute(entry.key)"
-              class="attribute-item"
-              [class.done]="hasPrior(entry.key)"
-            >
-              <span *ngIf="hasPrior(entry.key)">✓ </span>
-              <span *ngIf="!hasPrior(entry.key) && hasConditionPrior(entry.key, 'diagnosed')" class="partial-check">½ </span>
-              {{ cleanAttr(entry.key) }}
-            </li>
-          </ul>
-        </div>
+      <!-- completion state -->
+      <div *ngIf="done" class="completion-state">
+        <div class="completion-icon">✓</div>
+        <div class="completion-message">All {{ totalSteps }} attributes complete.</div>
       </div>
 
       <!-- balls and bins ui -->
-      <div *ngIf="selectedAttribute && !confidenceStep">
-        <button class="reset-link" (click)="reset()">↺ Reset</button>
+      <div *ngIf="!done && !confidenceStep">
+        <div class="preset-bar">
+          <button class="reset-link" (click)="setUniform()">⊟ Uniform</button>
+          <button class="reset-link" (click)="reset()">↺ Reset</button>
+        </div>
         <div class="histogram-box">
           <app-balls-into-bins
             [values]="currentValues"
@@ -99,7 +76,7 @@
       </div>
 
       <!-- confidence step -->
-      <div *ngIf="selectedAttribute && confidenceStep" class="confidence-step">
+      <div *ngIf="!done && confidenceStep" class="confidence-step">
         <div class="confidence-scale-labels">
           <span>Not confident</span>
           <span>Extremely confident</span>
@@ -118,13 +95,11 @@
 
     <!-- footer -->
     <div class="modal-footer">
-      <button *ngIf="selectedAttribute" (click)="goBack()">Back</button>
-      <button *ngIf="!selectedAttribute" (click)="close()" [disabled]="!canClose">
-        {{ canClose ? 'Close' : 'Set a prior for all attributes to continue' }}
-      </button>
-      <button *ngIf="selectedAttribute && !confidenceStep" class="primary" (click)="save()" [disabled]="remaining > 0">Save & continue</button>
-      <button *ngIf="selectedAttribute && confidenceStep" class="primary" (click)="submitConfidence()" [disabled]="confidenceRating === null">
-        {{ currentCondition === 'diagnosed' ? 'Next: No diagnosis →' : 'Confirm' }}
+      <button *ngIf="!done && !isFirstStep" (click)="goBack()">Back</button>
+      <button *ngIf="done" class="primary" (click)="close()">Close</button>
+      <button *ngIf="!done && !confidenceStep" class="primary" (click)="save()" [disabled]="remaining > 0">Save & continue</button>
+      <button *ngIf="!done && confidenceStep" class="primary" (click)="submitConfidence()" [disabled]="confidenceRating === null">
+        {{ currentCondition === 'diagnosed' ? 'Next: No diagnosis →' : (currentStep < totalSteps ? 'Next attribute →' : 'Finish') }}
       </button>
     </div>
 

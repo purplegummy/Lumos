@@ -385,9 +385,9 @@
                         <span class="badge badge-secondary">Filters</span>
                       </h5>
                     </td>
-                    <td class="float-right" *ngIf="global.appLayout !== 'CONTROL'">
-                      <button class="btn btn-light btn-sm" (click)="removeFilters()">
-                        <i class="fa fa-times"></i>
+                    <td class="float-right">
+                      <button class="btn btn-link btn-sm p-0" style="font-size:0.75rem; color:#888;" (click)="resetFilterValues()">
+                        Reset all filters
                       </button>
                     </td>
                   </tr>
