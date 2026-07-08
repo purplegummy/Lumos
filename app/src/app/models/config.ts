@@ -27,8 +27,8 @@ export class SessionPage {
 }
 
 export const DeploymentConfig = Object.freeze({
-  // SERVER_URL: "https://lumos-llm.onrender.com/"
-  SERVER_URL: "http://localhost:3000"
+  SERVER_URL: "https://lumos-llm.onrender.com/"
+  // SERVER_URL: "http://localhost:3000"
 });
 
 /**
