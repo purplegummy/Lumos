@@ -253,3 +253,31 @@ def compute_phase_metrics(dc_map, bias_logs):
         "n_interacted": len(every),
         "n_selected": len(selected),
     }
+
+
+def compute_dwell_metrics(detailed_map, bias_logs):
+    """Compute the dwell-weighted bias metrics from a cached detailed dc_map.
+
+    Sibling of compute_phase_metrics: it reads the CACHED dc_map_detailed (the
+    per-teen {dc, consistency, weights} map, never recomputed) and the same
+    bias_logs. dwell_by_teen sums interactionDuration over scalar mouseout_item
+    entries; dwell_bias / dwell_bias_v then weight DC (point-level) and per-variable
+    consistency (variable-level) by that dwell. dwell_bias_v stays RAW (weighted=False).
+
+    Returns a plain dict for embedding in the interaction response's output_data:
+
+      dwell_bias   : point-level, dwell-weighted mean DC minus the all-teen baseline
+      dwell_bias_v : {variable: score}, per-variable dwell-weighted consistency bias
+      n_dwelled    : number of distinct teens with any summed dwell
+
+    NOTE: dwell_bias / dwell_bias_v raise fail-loud if a dwelled id is absent from
+    the map. That strict guarantee is intentional and stays in dc_metric; the caller
+    (on_interaction) guards this at the handler boundary so a stray id cannot break
+    the live interaction response.
+    """
+    dwell = dc_metric.dwell_by_teen(bias_logs)
+    return {
+        "dwell_bias": dc_metric.dwell_bias(detailed_map, dwell),
+        "dwell_bias_v": dc_metric.dwell_bias_v(detailed_map, dwell),
+        "n_dwelled": len(dwell),
+    }

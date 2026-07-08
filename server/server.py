@@ -199,6 +199,9 @@ async def on_commit_priors(sid, data):
             if teens and dc_metric.LABEL_ATTR in sample:
                 dmap = dc_metric.dc_map(teens, beliefs)
                 client["dc_map"] = dmap
+                # Detailed map (per-teen {dc, consistency, weights}) for the dwell
+                # metrics; same teens/beliefs, computed once alongside dc_map.
+                client["dc_map_detailed"] = dc_metric.dc_map_detailed(teens, beliefs)
                 mean_dc = sum(dmap.values()) / len(dmap) if dmap else 0.0
                 print(f"[DC] DC map computed for {pid}: {len(dmap)} teens, "
                       f"mean DC {mean_dc:.4f} (vars: {report['complete']})", flush=True)
@@ -261,6 +264,23 @@ async def on_interaction(sid, data):
                   flush=True)
         else:
             metrics["dc_bias"] = None
+
+        # --- Dwell-weighted bias: read the CACHED detailed map (parallel to
+        # dc_bias, a SEPARATE top-level key). dwell_bias/dwell_bias_v raise
+        # fail-loud on an unknown id; on_interaction has no outer try/except, so
+        # an unguarded raise would drop the whole interaction response (lost data).
+        # Guard ONLY here at the handler boundary -- the strict raise stays inside
+        # dc_metric. On failure: log + None, same shape as the map-absent case.
+        detailed = CLIENTS[pid].get("dc_map_detailed")
+        if detailed:
+            try:
+                metrics["dwell_bias"] = dc_adapter.compute_dwell_metrics(
+                    detailed, CLIENTS[pid]["bias_logs"])
+            except Exception as e:
+                print(f"[DWELL] compute failed: {e}", flush=True)
+                metrics["dwell_bias"] = None
+        else:
+            metrics["dwell_bias"] = None
 
         response["output_data"] = metrics
 
