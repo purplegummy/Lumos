@@ -75,6 +75,12 @@ DIAGNOSED_VALUE = "Yes"
 # Additive smoothing for the variable-bin association (vba)
 DEFAULT_ALPHA = 0.5
 
+# The single interaction type that carries a per-teen hover dwell we sum on.
+# A completed point-hover emits mouseout_item with a top-level interactionDuration
+# (ms) and a SCALAR data["id"]. (mouseover_item is not logged to bias_logs, and
+# mouseout_group carries a LIST id -- see dwell_by_teen's scope note.)
+MOUSEOUT_ITEM = "mouseout_item"
+
 
 # --------------------------------------------------------------------------- #
 # 1. js_distance -- the weight primitive (raw JS divergence, sqrt -> distance)
@@ -222,6 +228,35 @@ def consistency_for_teen(teen, variable_belief):
 # --------------------------------------------------------------------------- #
 # 4. dc_for_teen
 # --------------------------------------------------------------------------- #
+def _consistency_and_weights_for_teen(teen, beliefs):
+    """Shared core: per-variable C_v and w_v for one teen, plus the DC value.
+
+    dc_for_teen and dc_map_detailed both call this so the DC value is computed
+    ONCE and exposed alongside its decomposition -- never recomputed. The DC math
+    (weighted mean of C_v, with the sum_v(w_v)==0 -> 0.0 guard) is exactly what
+    dc_for_teen used to inline; factoring it here does not change the result.
+
+    Returns:
+        (dc_value, consistency_by_var, weights_by_var) where the two dicts are
+        keyed by variable attribute. w_v depends only on the belief (not the
+        teen), so weights are identical across teens.
+    """
+    consistency = {}
+    weights = {}
+    numerator = 0.0
+    denominator = 0.0
+    for vb in _belief_list(beliefs):
+        v = vb["attribute"]
+        w = _variable_weight(vb)
+        c = consistency_for_teen(teen, vb)
+        consistency[v] = c
+        weights[v] = w
+        numerator += w * c
+        denominator += w
+    dc_value = 0.0 if denominator == 0.0 else numerator / denominator
+    return dc_value, consistency, weights
+
+
 def dc_for_teen(teen, beliefs):
     """DC(t) = sum_v(w_v * C_v) / sum_v(w_v).
 
@@ -229,16 +264,8 @@ def dc_for_teen(teen, beliefs):
     non-diagnosed distributions identically for EVERY variable, so there is no
     differential belief anywhere -- return 0.0 (documented; avoids 0/0).
     """
-    numerator = 0.0
-    denominator = 0.0
-    for vb in _belief_list(beliefs):
-        w = _variable_weight(vb)
-        c = consistency_for_teen(teen, vb)
-        numerator += w * c
-        denominator += w
-    if denominator == 0.0:
-        return 0.0
-    return numerator / denominator
+    dc_value, _consistency, _weights = _consistency_and_weights_for_teen(teen, beliefs)
+    return dc_value
 
 
 # --------------------------------------------------------------------------- #
@@ -256,6 +283,29 @@ def dc_map(teens, beliefs):
         dict {teen_id: dc_value}.
     """
     return {tid: dc_for_teen(teens[tid], beliefs) for tid in teens}
+
+
+def dc_map_detailed(teens, beliefs):
+    """Like dc_map, but each entry retains the per-variable decomposition.
+
+    Returns:
+        dict {teen_id: {
+            "dc":          float,               # identical to dc_map[teen_id]
+            "consistency": {variable: C_v},     # per-variable belief-consistency
+            "weights":     {variable: w_v}}}    # per-variable js weight (teen-independent)
+
+    dc_map (scalar per teen) is intentionally left UNCHANGED -- the frozen phase
+    metrics and the live adapter consume DC as a bare number. This richer map is
+    what the dwell metrics decompose. Storing weights too makes the raw-vs-weighted
+    variable-consistency choice in dwell_bias_v a one-line switch.
+    """
+    out = {}
+    for tid in teens:
+        dc_value, consistency, weights = _consistency_and_weights_for_teen(
+            teens[tid], beliefs
+        )
+        out[tid] = {"dc": dc_value, "consistency": consistency, "weights": weights}
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -279,6 +329,13 @@ def _mean_all(dcs):
     if not dcs:
         return None
     return sum(dcs.values()) / len(dcs)
+
+
+def _mean_all_dc(detailed_map):
+    """Baseline mean DC over ALL teens of a dc_map_detailed; None if empty."""
+    if not detailed_map:
+        return None
+    return sum(e["dc"] for e in detailed_map.values()) / len(detailed_map)
 
 
 # --------------------------------------------------------------------------- #
@@ -334,3 +391,122 @@ def selection_bias(dcs, selected_ids):
     if sub is None or base is None:
         return 0.0
     return sub - base
+
+
+# --------------------------------------------------------------------------- #
+# 7. Dwell (attention-time) helpers + the two dwell-weighted bias metrics
+# --------------------------------------------------------------------------- #
+def dwell_by_teen(logs):
+    """Sum per-teen hover dwell (ms) from bias_logs -> {teen_id: total_dwell_ms}.
+
+    Filters to mouseout_item entries whose data["id"] is a SCALAR teen id, groups
+    by id, and sums the top-level interactionDuration (ms). Repeated hovers on the
+    same teen accumulate (each hover is a separate log entry).
+
+    SCOPE (this pass): scalar mouseout_item ONLY. A mouseout_group entry carries a
+    LIST id and a single aggregate duration; attributing that group duration to its
+    member teens is an open modeling decision (equal split? full to each? weight by
+    something?), so group hovers are deliberately skipped here rather than guessed.
+    TODO(group-hover): decide member attribution before folding mouseout_group in.
+
+    Args:
+        logs: the bias_logs list (each entry is the raw frontend message).
+
+    Returns:
+        dict {teen_id: total_dwell_ms} (float ms). Ids with no dwell are absent.
+    """
+    dwell = {}
+    for entry in logs:
+        if entry.get("interactionType") != MOUSEOUT_ITEM:
+            continue
+        data = entry.get("data", {})
+        tid = data.get("id")
+        # scalar ids only: skip list (group) ids and the "-" / None placeholders.
+        if isinstance(tid, list) or tid is None or tid == "-":
+            continue
+        duration = entry.get("interactionDuration", 0) or 0
+        dwell[tid] = dwell.get(tid, 0.0) + float(duration)
+    return dwell
+
+
+def dwell_bias(detailed_map, dwell):
+    """DwellBias (point-level): dwell-weighted mean DC minus the all-teen mean DC.
+
+        DwellBias = sum_i(dwell_i * DC_i) / sum_i(dwell_i)  -  mean(DC over ALL teens)
+
+    where i ranges over teens with dwell_i > 0. The baseline is the FIXED all-200
+    mean DC (same convention as the phase metrics). Positive => the participant
+    spent their attention disproportionately on belief-confirming (high-DC) teens.
+
+    FAIL-LOUD: a dwelled id absent from detailed_map raises KeyError -- every teen
+    is in the map, so a miss is a real bug, not a droppable event (project's
+    fail-loud-over-silent-repair convention).
+
+    Guard: sum(dwell) == 0 (no positive-dwell teens) -> 0.0, mirroring the phase
+    metrics' empty-input return.
+    """
+    numerator = 0.0
+    denominator = 0.0
+    for tid, d in dwell.items():
+        if d <= 0:
+            continue
+        if tid not in detailed_map:
+            raise KeyError(f"[dwell_bias] dwelled id {tid!r} not in dc_map")
+        numerator += d * detailed_map[tid]["dc"]
+        denominator += d
+    if denominator == 0.0:
+        return 0.0
+    base = _mean_all_dc(detailed_map)
+    if base is None:
+        return 0.0
+    return numerator / denominator - base
+
+
+def dwell_bias_v(detailed_map, dwell, weighted=False):
+    """DwellBias_v (variable-level) -> {variable: score}.
+
+        DwellBias_v[v] = sum_i(dwell_i * VC_{i,v}) / sum_i(dwell_i)
+                         - mean(VC_{i,v} over ALL teens)
+
+    where i ranges over teens with dwell_i > 0 and VC_{i,v} is teen i's per-variable
+    consistency stored in detailed_map. Same dwell weights and same fixed all-200
+    baseline (computed per variable) as the point-level DwellBias.
+
+    raw-vs-weighted VC (FLAGGED for confirmation): by default VC_{i,v} is the RAW
+    per-variable consistency C_{i,v} ("belief-consistency of a variable in a data
+    point"). Pass weighted=True to use the js-weighted contribution w_v * C_{i,v}
+    instead -- the stored weights make this a one-line switch. Because w_v is
+    teen-independent, with weighted=True the per-variable scores decompose the
+    point-level DwellBias exactly: sum_v DwellBias_v[v] / sum_v(w_v) == DwellBias.
+
+    FAIL-LOUD: a dwelled id absent from detailed_map raises KeyError.
+
+    Guard: sum(dwell) == 0 -> every variable scores 0.0. Empty map -> {}.
+    """
+    if not detailed_map:
+        return {}
+    variables = list(next(iter(detailed_map.values()))["consistency"].keys())
+
+    def vc(entry, v):
+        c = entry["consistency"][v]
+        return entry["weights"][v] * c if weighted else c
+
+    n = len(detailed_map)
+    baseline = {
+        v: sum(vc(e, v) for e in detailed_map.values()) / n for v in variables
+    }
+
+    numerator = {v: 0.0 for v in variables}
+    denominator = 0.0
+    for tid, d in dwell.items():
+        if d <= 0:
+            continue
+        if tid not in detailed_map:
+            raise KeyError(f"[dwell_bias_v] dwelled id {tid!r} not in dc_map")
+        entry = detailed_map[tid]
+        denominator += d
+        for v in variables:
+            numerator[v] += d * vc(entry, v)
+    if denominator == 0.0:
+        return {v: 0.0 for v in variables}
+    return {v: numerator[v] / denominator - baseline[v] for v in variables}

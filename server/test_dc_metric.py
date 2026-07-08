@@ -136,6 +136,20 @@ def make_teen(sex, diagnosed):
     return {"child_sex": sex, dc.LABEL_ATTR: "Yes" if diagnosed else "No"}
 
 
+def mouseout_item_log(teen_id, duration_ms):
+    """One bias_logs entry: a completed point-hover carrying its dwell (ms)."""
+    return {
+        "interactionType": "mouseout_item",
+        "interactionDuration": duration_ms,
+        "data": {"id": teen_id},
+    }
+
+
+def mean_all_dc(detailed_map):
+    """Independent baseline: mean of the per-teen DC over the whole map."""
+    return sum(e["dc"] for e in detailed_map.values()) / len(detailed_map)
+
+
 def summarize(name, values):
     arr = np.asarray(values, dtype=float)
     print(
@@ -357,6 +371,146 @@ def main():
     check("order-MF consistency matches hand value", abs(c_MF - exp_MF) < TOL)
     check("swapping category order flips the result (keys on label, not position)",
           c_FM > 0 and c_MF < 0)
+
+    # ======================================================================= #
+    # DWELL-WEIGHTED CHECKS (dwell_by_teen, DwellBias, DwellBias_v)
+    # ======================================================================= #
+    print("\n" + "-" * 72)
+    print("DWELL-WEIGHTED PATH")
+    print("-" * 72)
+
+    # detailed map must agree with the scalar dc_map (delegation, no recompute).
+    detailed = dc.dc_map_detailed(teens, beliefs)
+    check("dc_map_detailed['dc'] == dc_map for every teen",
+          all(abs(detailed[t]["dc"] - dcs[t]) < 1e-12 for t in teens))
+    base_dc = mean_all_dc(detailed)
+    print(f"\nmean DC over all teens (baseline) = {base_dc:+.6f}")
+
+    # --- dwell_by_teen: repeated hovers on one id sum; groups/placeholders skip -
+    id_a, id_b = sorted_ids[-1], sorted_ids[0]  # highest-DC, lowest-DC teen
+    dwell_logs = [
+        mouseout_item_log(id_a, 300),
+        mouseout_item_log(id_a, 700),   # same teen again -> should sum to 1000
+        mouseout_item_log(id_b, 500),
+        {"interactionType": "mouseover_item", "interactionDuration": 999,
+         "data": {"id": id_a}},                          # not mouseout -> ignored
+        {"interactionType": "mouseout_group", "interactionDuration": 999,
+         "data": {"id": [id_a, id_b]}},                  # list id -> ignored (scope)
+        {"interactionType": "mouseout_item", "interactionDuration": 40,
+         "data": {"id": "-"}},                           # placeholder -> ignored
+    ]
+    dwell = dc.dwell_by_teen(dwell_logs)
+    print(f"dwell_by_teen -> {dwell}")
+    check("repeated hovers on one id sum (id_a -> 1000ms)", dwell.get(id_a) == 1000.0)
+    check("second id summed independently (id_b -> 500ms)", dwell.get(id_b) == 500.0)
+    check("mouseover_item / mouseout_group / '-' id all skipped (exactly 2 ids)",
+          len(dwell) == 2)
+
+    # --- DwellBias direction: long dwell on confirming vs contradicting teens ---
+    long_on_consistent = {t: 1000.0 for t in consistent_ids}
+    long_on_inconsistent = {t: 1000.0 for t in inconsistent_ids}
+    db_consistent = dc.dwell_bias(detailed, long_on_consistent)
+    db_inconsistent = dc.dwell_bias(detailed, long_on_inconsistent)
+    print(f"DwellBias  dwell-on-consistent   = {db_consistent:+.6f}")
+    print(f"DwellBias  dwell-on-inconsistent = {db_inconsistent:+.6f}")
+    check("DwellBias positive when dwell concentrates on confirming teens",
+          db_consistent > 0.2 * dc_std)
+    check("DwellBias negative when dwell concentrates on contradicting teens",
+          db_inconsistent < -0.2 * dc_std)
+
+    # even dwell over ALL teens -> weighted mean == unweighted mean -> exactly 0.
+    even_all = {t: 500.0 for t in teens}
+    db_even = dc.dwell_bias(detailed, even_all)
+    print(f"DwellBias  even dwell over all   = {db_even:+.2e}")
+    check("even dwell over all teens -> DwellBias == 0", abs(db_even) < 1e-12)
+    # even dwell over a representative spread -> ~0 (same convention as phase rep).
+    db_rep = dc.dwell_bias(detailed, {t: 500.0 for t in representative_ids})
+    check("even dwell over representative spread -> DwellBias ~ 0",
+          abs(db_rep) < 0.1 * dc_std)
+
+    # --- time-weighting actually bites: dwell-weighted != count-average ---------
+    # Two teens, extreme DC gap. Pour dwell onto the high-DC teen, a sliver on the
+    # low. Dwell-weighting must track the high teen; the uniform count-average sits
+    # at the midpoint. Assert DwellBias equals the hand dwell-weighted value AND is
+    # far from what a uniform (count) average would give.
+    d_a, d_b = 1000.0, 1.0
+    bite = {id_a: d_a, id_b: d_b}
+    db_bite = dc.dwell_bias(detailed, bite)
+    weighted_mean = (d_a * detailed[id_a]["dc"] + d_b * detailed[id_b]["dc"]) / (d_a + d_b)
+    count_mean = (detailed[id_a]["dc"] + detailed[id_b]["dc"]) / 2.0
+    expected_bite = weighted_mean - base_dc
+    expected_count = count_mean - base_dc
+    print(f"time-weighting bite: dwell-weighted={db_bite:+.6f}  "
+          f"count-average={expected_count:+.6f}")
+    check("DwellBias == hand dwell-weighted value (to 1e-9)",
+          abs(db_bite - expected_bite) < 1e-9)
+    check("dwell-weighting diverges clearly from the count-average",
+          abs(db_bite - expected_count) > 0.2 * dc_std)
+
+    # --- hand-computed DwellBias to ~9 decimals over 3 explicit teens -----------
+    t1, t2, t3 = sorted_ids[-1], sorted_ids[len(sorted_ids) // 2], sorted_ids[0]
+    hd = {t1: 800.0, t2: 150.0, t3: 50.0}
+    hand_num = 800.0 * detailed[t1]["dc"] + 150.0 * detailed[t2]["dc"] + 50.0 * detailed[t3]["dc"]
+    hand_expected = hand_num / 1000.0 - base_dc
+    hand_actual = dc.dwell_bias(detailed, hd)
+    print(f"hand DwellBias: expected={hand_expected:+.9f} actual={hand_actual:+.9f}")
+    check("DwellBias matches 3-teen hand value (to 1e-9)",
+          abs(hand_actual - hand_expected) < 1e-9)
+
+    # --- sum(dwell) == 0 guard --------------------------------------------------
+    check("empty dwell -> DwellBias == 0.0", dc.dwell_bias(detailed, {}) == 0.0)
+    check("all-zero dwell durations -> DwellBias == 0.0",
+          dc.dwell_bias(detailed, {t: 0.0 for t in consistent_ids}) == 0.0)
+    check("no mouseout_item logs -> dwell_by_teen empty -> DwellBias 0.0",
+          dc.dwell_bias(detailed, dc.dwell_by_teen([])) == 0.0)
+
+    # --- FAIL-LOUD: a dwelled id not in the map must raise ----------------------
+    raised = False
+    try:
+        dc.dwell_bias(detailed, {"NOT_A_TEEN_ID": 500.0})
+    except KeyError:
+        raised = True
+    check("dwelled id absent from dc_map raises (fail-loud)", raised)
+
+    # --- DwellBias_v: strong-on-long-dwell variable scores high -----------------
+    # screen_time_weekday is a strongly-separated belief; concentrate dwell on the
+    # teens whose screen_time consistency is highest and confirm that variable leads.
+    screen_C = {t: detailed[t]["consistency"]["screen_time_weekday"] for t in teens}
+    top_screen = sorted(screen_C, key=lambda t: screen_C[t])[-25:]  # highest-C teens
+    dbv_raw = dc.dwell_bias_v(detailed, {t: 1000.0 for t in top_screen})
+    print("\nDwellBias_v (raw C) with dwell on top screen_time-consistent teens:")
+    for v, s in dbv_raw.items():
+        print(f"  {v:30s} {s:+.6f}")
+    check("DwellBias_v: screen_time_weekday scores positive on its own high-C teens",
+          dbv_raw["screen_time_weekday"] > 0)
+    check("DwellBias_v: dwell-favored variable leads all others",
+          dbv_raw["screen_time_weekday"] == max(dbv_raw.values()))
+
+    # --- decomposition coherence: weighted DwellBias_v reconstructs DwellBias ----
+    # w_v is teen-independent, so sum_v(w_v * DwellBias_v_raw[v]) / sum_v(w_v)
+    # equals the point-level DwellBias exactly. Use a nontrivial mixed dwell.
+    random.seed(11)
+    mixed = {t: float(random.randint(50, 2000)) for t in sorted_ids[::3]}
+    db_point = dc.dwell_bias(detailed, mixed)
+    dbv_raw_mixed = dc.dwell_bias_v(detailed, mixed, weighted=False)
+    any_entry = next(iter(detailed.values()))
+    w = any_entry["weights"]
+    W = sum(w.values())
+    recon = sum(w[v] * dbv_raw_mixed[v] for v in dbv_raw_mixed) / W
+    print(f"\ndecomposition: point DwellBias={db_point:+.9f}  "
+          f"reconstructed from DwellBias_v={recon:+.9f}")
+    check("weighted sum of raw DwellBias_v reconstructs point DwellBias (to 1e-9)",
+          abs(recon - db_point) < 1e-9)
+
+    # weighted=True switch: equals w_v * raw score per variable (one-line switch).
+    dbv_weighted = dc.dwell_bias_v(detailed, mixed, weighted=True)
+    check("weighted=True DwellBias_v == w_v * raw DwellBias_v per variable",
+          all(abs(dbv_weighted[v] - w[v] * dbv_raw_mixed[v]) < 1e-9
+              for v in dbv_raw_mixed))
+
+    # DwellBias_v guards mirror the point-level ones.
+    check("empty dwell -> every DwellBias_v == 0.0",
+          all(s == 0.0 for s in dc.dwell_bias_v(detailed, {}).values()))
 
     print("\n" + "=" * 72)
     print(f"{'ALL CHECKS PASSED' if failures == 0 else str(failures) + ' CHECK(S) FAILED'}")
