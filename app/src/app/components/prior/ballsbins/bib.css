@@ -13,6 +13,7 @@
   min-width: 600px;
   width: 100%;
   justify-content: space-between;
+  overflow: visible;
 }
 
 .grid.categorical {

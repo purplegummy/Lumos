@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core';
 import { Bin, PriorBelief, PriorCondition } from '../../../models/prior-belief';
 import { PriorBeliefStore } from '../../../store/prior-belief.store';
 import { BinningService } from '../../../services/binning.service';
@@ -27,7 +27,7 @@ const CONDITION_LABEL: Record<PriorCondition, string> = {
   templateUrl: './modal.html',
   styleUrls: ['./modal.css']
 })
-export class ElicitationModalComponent {
+export class ElicitationModalComponent implements OnInit {
   @Input() datasetId: string = '';
   @Input() attributes: string[] = [];
   @Input() columnValues: Record<string, number[]> = {};
@@ -35,7 +35,8 @@ export class ElicitationModalComponent {
 
   @Output() closed = new EventEmitter<void>();
 
-  selectedAttribute: string | null = null;
+  currentAttrIndex = 0;
+  done = false;
   currentCondition: PriorCondition = 'diagnosed';
   draftCounts: number[] = [];
   confidenceStep = false;
@@ -43,12 +44,27 @@ export class ElicitationModalComponent {
   private pendingBelief: PriorBelief | null = null;
   private draftsByCondition: Partial<Record<PriorCondition, number[]>> = {};
 
+  get selectedAttribute(): string {
+    return this.allAttributes[this.currentAttrIndex] ?? '';
+  }
+
+  get totalSteps(): number { return this.allAttributes.length; }
+  get currentStep(): number { return this.currentAttrIndex + 1; }
+
+  get isFirstStep(): boolean {
+    return this.currentAttrIndex === 0 && this.currentCondition === 'diagnosed' && !this.confidenceStep;
+  }
+
   constructor(
     private store: PriorBeliefStore,
     public binningService: BinningService,
     private chatService: ChatService,
     private global: SessionPage
   ) {}
+
+  ngOnInit() {
+    this._loadDraft();
+  }
 
   get allAttributes(): string[] {
     return this.attributes.concat(Object.keys(this.categoricalValues));
@@ -84,18 +100,8 @@ export class ElicitationModalComponent {
     return this.binningService.ballCount - this.draftCounts.reduce((a, b) => a + b, 0);
   }
 
-  selectAttribute(attr: string) {
-    this.selectedAttribute = attr;
-    this.currentCondition = 'diagnosed';
-    this.confidenceStep = false;
-    this.draftsByCondition = {};
-    this.confidenceRating = this.store.getBelief(this.datasetId, attr, 'diagnosed')?.confidence ?? 50;
-    this._loadDraft();
-  }
-
   private _loadDraft() {
     if (!this.selectedAttribute) return;
-    // priority: in-session draft > saved store belief > empty
     if (this.draftsByCondition[this.currentCondition]) {
       this.draftCounts = this.draftsByCondition[this.currentCondition]!.slice();
     } else {
@@ -134,6 +140,16 @@ export class ElicitationModalComponent {
     } else {
       this.draftCounts = this.binningService.emptyBallCounts();
     }
+    this.draftsByCondition[this.currentCondition] = this.draftCounts.slice();
+  }
+
+  setUniform() {
+    const n = this.draftCounts.length;
+    if (n === 0) return;
+    const base = Math.floor(this.binningService.ballCount / n);
+    const remainder = this.binningService.ballCount % n;
+    this.draftCounts = this.draftCounts.map((_, i) => base + (i < remainder ? 1 : 0));
+    this.draftsByCondition[this.currentCondition] = this.draftCounts.slice();
   }
 
   save() {
@@ -174,7 +190,6 @@ export class ElicitationModalComponent {
   submitConfidence() {
     if (!this.pendingBelief) return;
     const belief = { ...this.pendingBelief, confidence: Number(this.confidenceRating) };
-    console.log('[prior] submitConfidence sending:', belief.attribute, belief.condition, 'confidence=', belief.confidence);
     this.store.setBelief(belief);
     this.chatService.sendPriors({
       participantId: this.global.participantId,
@@ -189,47 +204,63 @@ export class ElicitationModalComponent {
     this.confidenceRating = 50;
 
     if (this.currentCondition === 'diagnosed') {
-      // move to second condition, preserving any existing not_diagnosed draft
       this.currentCondition = 'not_diagnosed';
-      this.confidenceRating = this.store.getBelief(this.datasetId, this.selectedAttribute ?? '', 'not_diagnosed')?.confidence ?? 50;
+      this.confidenceRating = this.store.getBelief(this.datasetId, this.selectedAttribute, 'not_diagnosed')?.confidence ?? 50;
       this._loadDraft();
     } else {
-      // both conditions done — back to attribute picker
-      this.selectedAttribute = null;
+      this._nextAttribute();
+    }
+  }
+
+  private _nextAttribute() {
+    if (this.currentAttrIndex < this.allAttributes.length - 1) {
+      this.currentAttrIndex++;
+      this.currentCondition = 'diagnosed';
+      this.confidenceStep = false;
+      this.draftsByCondition = {};
+      this.confidenceRating = 50;
       this.draftCounts = [];
+      this._loadDraft();
+    } else {
+      this.done = true;
     }
   }
 
   goBack() {
-    // always persist current draft before navigating away
     this.draftsByCondition[this.currentCondition] = this.draftCounts.slice();
 
     if (this.confidenceStep) {
-      // confidence → distribution (same condition)
       this.confidenceStep = false;
       this.pendingBelief = null;
       this._loadDraft();
     } else if (this.currentCondition === 'not_diagnosed') {
-      // not_diagnosed distribution → diagnosed confidence
       this.currentCondition = 'diagnosed';
       this.confidenceStep = true;
-      const existing = this.selectedAttribute ? this.store.getBelief(this.datasetId, this.selectedAttribute, 'diagnosed') : null;
+      const existing = this.store.getBelief(this.datasetId, this.selectedAttribute, 'diagnosed');
       if (existing) {
         this.pendingBelief = { ...existing };
         this.confidenceRating = existing.confidence ?? 50;
       }
-    } else {
-      // diagnosed distribution → picker
-      this.selectedAttribute = null;
+    } else if (this.currentAttrIndex > 0) {
+      // go back to previous attribute's not_diagnosed confidence step
+      this.currentAttrIndex--;
+      this.draftsByCondition = {};
+      this.currentCondition = 'not_diagnosed';
+      this.confidenceStep = true;
+      const existing = this.store.getBelief(this.datasetId, this.selectedAttribute, 'not_diagnosed');
+      if (existing) {
+        this.pendingBelief = { ...existing };
+        this.confidenceRating = existing.confidence ?? 50;
+      }
     }
+    // if isFirstStep, back button is hidden — nothing to do
   }
 
   get canClose(): boolean {
-    return this.allAttributes.every(attr => this.hasPrior(attr));
+    return this.done || this.allAttributes.every(attr => this.hasPrior(attr));
   }
 
   close() {
-    if (!this.canClose) return;
     this.closed.emit();
   }
 }

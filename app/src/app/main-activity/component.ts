@@ -1212,6 +1212,20 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   /**
    * Disable all filters and reset the visualization.
    */
+  resetFilterValues() {
+    let dataset = this.appConfig[this.global.appMode];
+    dataset.attributeList.forEach((attribute: string) => {
+      let attrConfig = dataset["attributes"][attribute];
+      if (!attrConfig["filter"]) return;
+      if (this.utilsService.isMeasure(dataset, attribute, "N") || this.utilsService.isMeasure(dataset, attribute, "O")) {
+        attrConfig["filterModel"] = attrConfig["types"].slice();
+      } else if (this.utilsService.isMeasure(dataset, attribute, "Q") || this.utilsService.isMeasure(dataset, attribute, "T")) {
+        attrConfig["filterModel"] = [attrConfig["min"], attrConfig["max"]];
+      }
+    });
+    this.updateVis();
+  }
+
   removeFilters(updateVis = true) {
     this.appConfig[this.global.appMode].attributeList.forEach((attribute) =>
       this.removeFilter(attribute, false, false)

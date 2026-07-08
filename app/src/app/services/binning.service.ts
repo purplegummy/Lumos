@@ -20,7 +20,7 @@ export class BinningService {
     if (allIntegers && range <= 10) {
       return Array.from({ length: range + 1 }, (_, i) => {
         const v = rawMin + i;
-        return { lo: v, hi: v + 1, label: String(v) };
+        return { lo: v, hi: v + 1, label: `${v}-${v + 1}` };
       });
     }
 
@@ -33,7 +33,7 @@ export class BinningService {
     return Array.from({ length: count }, (_, i) => {
       const lo = min + i * step;
       const hi = min + (i + 1) * step;
-      return { lo, hi, label: `${this.fmt(lo, step)}–${this.fmt(hi, step)}` };
+      return { lo, hi, label: `${this.fmt(lo, step)}-${this.fmt(hi, step)}` };
     });
   }
 
