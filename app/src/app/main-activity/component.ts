@@ -113,6 +113,22 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     this.plotGroup = null;
   }
 
+  /**
+   * Details-panel value for one attribute of the hovered teen. For the two AXIS
+   * variables it returns the JITTERED data value (so the shown number matches the
+   * dot's visual position), rounded to one decimal; every other column, and any
+   * case where no jitter was stored (categorical axis, same-variable y=x, jitter
+   * off), returns the true value. The null check leans on the upstream invariant
+   * (scatter-plot-component sets jitter_*Val non-null IFF a Q jitter was applied).
+   */
+  panelValue(attr: string) {
+    const ds = this.appConfig[this.global.appMode];
+    const ho = ds['hoveredObject'];
+    if (attr === ds['xVar'] && ho['jitter_xVal'] != null) return Math.round(ho['jitter_xVal'] * 10) / 10;
+    if (attr === ds['yVar'] && ho['jitter_yVal'] != null) return Math.round(ho['jitter_yVal'] * 10) / 10;
+    return ho[attr];   // true value for all other columns, and when no jitter stored
+  }
+
   /** ========================= SUBJECT SELECTION METHODS ====================== */
 
   hoverSubject(subject: any) {

@@ -534,10 +534,10 @@
                             <span class="text-muted">{{attr}}</span>
                           </td>
                           <td *ngIf="appConfig[global.appMode].attributeDatatypeList['Q'].indexOf(attr) !== -1">
-                            <strong>{{utilsService.formatLargeNum(+appConfig[global.appMode]['hoveredObject'][attr])}}</strong>
+                            <strong>{{utilsService.formatLargeNum(+panelValue(attr))}}</strong>
                           </td>
                           <td *ngIf="appConfig[global.appMode].attributeDatatypeList['Q'].indexOf(attr) === -1">
-                            <strong>{{appConfig[global.appMode]['hoveredObject'][attr]}}</strong>
+                            <strong>{{panelValue(attr)}}</strong>
                           </td>
                         </tr>
                       </ng-container>

@@ -368,52 +368,70 @@ export class ScatterPlot {
   }
 }
 
+// Per-axis jitter magnitude as a fraction of that axis's own geometry (see the
+// comment inside translatePoints). One number each -- tune here.
+//   Q_JITTER:   fraction of one data step's pixel width (quantitative axes)
+//   CAT_JITTER: fraction of a band's bandwidth() (categorical N/O/T axes)
+const Q_JITTER = 0.25;
+const CAT_JITTER = 0.3;
+
 /**
  * Sets translate(x,y) string to pass to transform attr of each point.
  */
 function translatePoints(d, context, xIsQ, yIsQ) {
   let translate = "";
   let dataset = context.appConfig[context.global.appMode];
-  if (context.userConfig.jitterScatterplotPoints) {
+  // Same variable on both axes is the degenerate y=x line. Independent per-axis
+  // jitter would scatter points off the diagonal into a cluster, so suppress
+  // jitter entirely for that case and fall through to the un-jittered path below
+  // (which places each point at its exact base => exact y=x; equal-value points
+  // stack, which is correct for a straight line). Per-attribute factors are
+  // irrelevant here since no jitter is applied.
+  const sameVariable = dataset["xVar"] === dataset["yVar"];
+  if (context.userConfig.jitterScatterplotPoints && !sameVariable) {
     // Jitter the points!
     let rng = seedrandom(d[dataset["primaryKey"]] + context.global["participantId"]);
 
     // Per-axis offset bound derived from that axis's OWN geometry, computed
     // independently so a mixed Q x N/O plot is handled correctly. The offset is
     // applied symmetrically (base +/- [0, bound]).
-    //  - Quantitative: 0.4 x the pixel size of one data step => the point stays
-    //    strictly inside its own value's lane (the lane is +/-0.5 step wide).
-    //  - Categorical (N/O): 0.3 x bandwidth() => a tight declump that doesn't
-    //    imply a meaningful within-band position.
+    //  - Quantitative: Q_JITTER x the pixel size of one data step => the point
+    //    stays strictly inside its own value's lane (the lane is +/-0.5 step wide).
+    //  - Categorical (N/O): CAT_JITTER x bandwidth() => a tight declump that
+    //    doesn't imply a meaningful within-band position.
     let xBase, xBound;
     if (xIsQ) {
       // x is Q
       let xStep = dataset["attributes"][dataset["xVar"]]["step"] || 1;
+      // Per-attribute jitter factor; ?? (not ||) so a deliberate 0 is honored.
+      const xJF = dataset["attributes"][dataset["xVar"]]["jitterFactor"] ?? Q_JITTER;
       xBase = context.scatterPlotConfig.xScale(d["xVar"]);
       xBound =
-        0.4 *
+        xJF *
         Math.abs(
           context.scatterPlotConfig.xScale(d["xVar"] + xStep) - context.scatterPlotConfig.xScale(d["xVar"])
         );
     } else {
       // x is N/O/T
       xBase = context.scatterPlotConfig.xScale(d["xVar"]) + context.scatterPlotConfig.xScale.bandwidth() / 2;
-      xBound = 0.3 * context.scatterPlotConfig.xScale.bandwidth();
+      xBound = CAT_JITTER * context.scatterPlotConfig.xScale.bandwidth();
     }
     let yBase, yBound;
     if (yIsQ) {
       // y is Q
       let yStep = dataset["attributes"][dataset["yVar"]]["step"] || 1;
+      // Per-attribute jitter factor; ?? (not ||) so a deliberate 0 is honored.
+      const yJF = dataset["attributes"][dataset["yVar"]]["jitterFactor"] ?? Q_JITTER;
       yBase = context.scatterPlotConfig.yScale(d["yVar"]);
       yBound =
-        0.4 *
+        yJF *
         Math.abs(
           context.scatterPlotConfig.yScale(d["yVar"] + yStep) - context.scatterPlotConfig.yScale(d["yVar"])
         );
     } else {
       // y is N/O/T
       yBase = context.scatterPlotConfig.yScale(d["yVar"]) + context.scatterPlotConfig.yScale.bandwidth() / 2;
-      yBound = 0.3 * context.scatterPlotConfig.yScale.bandwidth();
+      yBound = CAT_JITTER * context.scatterPlotConfig.yScale.bandwidth();
     }
 
     // Jitter X (same seeding pattern as before: one draw for sign, one for magnitude).
@@ -437,10 +455,21 @@ function translatePoints(d, context, xIsQ, yIsQ) {
     } else if (d["jitter_y"] > context.plotHeight) {
       d["jitter_y"] = 2 * context.plotHeight - d["jitter_y"];
     }
+    // Store the data-space jittered value (inverted from the FINAL, post-reflection
+    // pixel) so the details panel can show a number matching the dot's position.
+    // Q axes only -- scaleBand (categorical) has no .invert(), so leave those null.
+    // Invariant: jitter_*Val is non-null IFF a real Q jitter offset was applied to
+    // that axis this render; the panel relies on the null to fall back to true values.
+    d["jitter_xVal"] = xIsQ ? context.scatterPlotConfig.xScale.invert(d["jitter_x"]) : null;
+    d["jitter_yVal"] = yIsQ ? context.scatterPlotConfig.yScale.invert(d["jitter_y"]) : null;
     // set translation string
     translate = `translate(${d["jitter_x"]},${d["jitter_y"]})`;
   } else {
     // don't jitter!
+    // No jitter applied (same-variable y=x or jitter toggled off) => clear any stored
+    // data-space jitter so the panel never reads a stale value from a prior render.
+    d["jitter_xVal"] = null;
+    d["jitter_yVal"] = null;
     d["x"] = context.scatterPlotConfig.xScale(d["xVar"]);
     d["y"] = context.scatterPlotConfig.yScale(d["yVar"]);
     // align points in bands if x is N/O/T
