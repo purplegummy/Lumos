@@ -24,6 +24,7 @@ import { MainActivityComponent } from "./main-activity/component";
 import { BinColumnComponent } from "./components/prior/ballsbins/bincol";
 import { BallsIntoBinsComponent } from "./components/prior/ballsbins/bib";
 import { ElicitationModalComponent } from "./components/prior/modal/modal";
+import { SubmissionCompleteComponent } from "./submission-complete/component";
 
 const config: SocketIoConfig = {
   url: DeploymentConfig.SERVER_URL,
@@ -36,7 +37,8 @@ const config: SocketIoConfig = {
     MainActivityComponent,
     BinColumnComponent,
     BallsIntoBinsComponent,
-    ElicitationModalComponent
+    ElicitationModalComponent,
+    SubmissionCompleteComponent
   ],
   imports: [
     NgMultiSelectDropDownModule.forRoot(),

@@ -21,6 +21,20 @@ export class UtilsService {
   }
 
   /**
+   * Deterministic verification code derived from the participant ID, so the same
+   * participant always gets the same code and a researcher can recompute it from
+   * the logged participantId to confirm it wasn't fabricated.
+   */
+  generateVerificationCode(participantId: string): string {
+    let hash = 5381;
+    for (let i = 0; i < participantId.length; i++) {
+      hash = ((hash * 33) ^ participantId.charCodeAt(i)) >>> 0;
+    }
+    const code = hash.toString(36).toUpperCase().padStart(6, "0");
+    return `LX-${code}`;
+  }
+
+  /**
    * Generates random app type between CONTROL and AWARENESS
    */
   generateRandomAppType() {

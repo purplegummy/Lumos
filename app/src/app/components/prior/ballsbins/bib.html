@@ -1,7 +1,7 @@
 <div class="balls-into-bins" [class.categorical]="fixedBins.length > 0">
   <div class="grid" [class.categorical]="fixedBins.length > 0">
     <app-bin-column
-      *ngFor="let bin of bins; let i = index"
+      *ngFor="let bin of bins; let i = index; trackBy: trackByBinIndex"
       [bin]="bin"
       [count]="counts[i]"
       [maxBalls]="binningService.ballCount"

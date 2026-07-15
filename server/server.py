@@ -222,6 +222,16 @@ async def on_selected_subjects(sid, data):
         print(f"Selected subjects for {pid}: {subjects}")
 
 
+@SIO.on('on_task_submitted')
+async def on_task_submitted(sid, data):
+    pid = data.get("participantId")
+    code = data.get("verificationCode")
+    subjects = data.get("selected_subjects", [])
+    if pid:
+        firebase_logger.save_task_submission(pid, code, subjects)
+        print(f"Task submitted for {pid}: {code}")
+
+
 @SIO.event
 async def on_interaction(sid, data):
     app_mode = data["appMode"]  # The dataset that is being used, e.g. cars.csv
