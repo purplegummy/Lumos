@@ -1,0 +1,21 @@
+{
+  "_description": "Reversed diagnosis direction: fixated on NON-diagnosed teens (flips both themes).",
+  "phase": "realtime",
+  "trigger": true,
+  "dwell_bias": 0.26,
+  "point_level_dwell_bias_percentile": 0.92,
+  "diagnosis_focus": "No",
+  "dwell_bias_v": {
+    "screen_time_weekday": 0.39,
+    "hours_sleep_weeknight": 0.28,
+    "days_physical_activity_week": 0.2,
+    "difficulty_making_friends": 0.04
+  },
+  "attended_direction": {
+    "screen_time_weekday": "lower",
+    "hours_sleep_weeknight": "higher",
+    "days_physical_activity_week": "higher",
+    "difficulty_making_friends": "less_difficulty"
+  },
+  "previous_interventions": []
+}

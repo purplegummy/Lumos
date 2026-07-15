@@ -88,11 +88,16 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
         this.global.appLevel = params["level"];
       }
       const typeAliases: Record<string, string> = { F: "CONTROL" };
+      // "LLM" is a backend-only condition: appType is sent to the server so the
+      // intervention can run, while appLayout stays CONTROL so none of the
+      // awareness/trace panels render. Without that split the LLM condition
+      // would be LLM+AWARENESS and its effect could never be isolated.
+      const typeToLayout: Record<string, string> = { LLM: "CONTROL" };
       const rawType = params["type"];
       const resolvedType = typeAliases[rawType] ?? rawType;
-      const validTypes = ["CONTROL", "AWARENESS", "ADMIN"];
+      const validTypes = ["CONTROL", "AWARENESS", "ADMIN", "LLM"];
       if (rawType && validTypes.includes(resolvedType)) {
-        this.global.appLayout = resolvedType;
+        this.global.appLayout = typeToLayout[resolvedType] ?? resolvedType;
         this.global.appType = resolvedType;
       }
     });

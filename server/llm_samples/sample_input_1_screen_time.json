@@ -1,0 +1,21 @@
+{
+  "_description": "Realtime phase, screen time dominant, diagnosed focus.",
+  "phase": "realtime",
+  "trigger": true,
+  "dwell_bias": 0.31,
+  "point_level_dwell_bias_percentile": 0.96,
+  "diagnosis_focus": "Yes",
+  "dwell_bias_v": {
+    "screen_time_weekday": 0.42,
+    "hours_sleep_weeknight": 0.35,
+    "difficulty_making_friends": 0.18,
+    "days_physical_activity_week": 0.02
+  },
+  "attended_direction": {
+    "screen_time_weekday": "higher",
+    "hours_sleep_weeknight": "lower",
+    "difficulty_making_friends": "more_difficulty",
+    "days_physical_activity_week": "lower"
+  },
+  "previous_interventions": []
+}

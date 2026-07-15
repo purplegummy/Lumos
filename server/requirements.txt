@@ -5,3 +5,5 @@ python-engineio==3.14.2
 python-socketio==4.6.1
 scipy>=1.14.1
 pandas>=2.0.0
+anthropic>=0.116.0
+python-dotenv>=1.0.0

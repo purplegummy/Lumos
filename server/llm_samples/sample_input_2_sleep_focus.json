@@ -1,0 +1,26 @@
+{
+  "_description": "Sleep hours now dominant; previous_interventions populated (tests wording variation).",
+  "phase": "realtime",
+  "trigger": true,
+  "dwell_bias": 0.28,
+  "point_level_dwell_bias_percentile": 0.93,
+  "diagnosis_focus": "Yes",
+  "dwell_bias_v": {
+    "hours_sleep_weeknight": 0.48,
+    "difficulty_making_friends": 0.21,
+    "screen_time_weekday": 0.06,
+    "days_physical_activity_week": 0.03
+  },
+  "attended_direction": {
+    "hours_sleep_weeknight": "lower",
+    "difficulty_making_friends": "more_difficulty",
+    "screen_time_weekday": "higher",
+    "days_physical_activity_week": "lower"
+  },
+  "previous_interventions": [
+    {
+      "awareness_summary": "You've been looking closely at teens with a depression/anxiety diagnosis who also report longer screen time and limited in-person social time.",
+      "recommended_theme_titles": ["Similar screen time, no diagnosis"]
+    }
+  ]
+}
