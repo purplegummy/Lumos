@@ -131,6 +131,37 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
 
   /** ========================= SUBJECT SELECTION METHODS ====================== */
 
+  showSubmitConfirm = false;
+
+  private getSubmissionStorageKey(): string {
+    return `lumos_submitted_${this.global.participantId}`;
+  }
+
+  confirmSubmit() {
+    this.showSubmitConfirm = true;
+  }
+
+  cancelSubmit() {
+    this.showSubmitConfirm = false;
+  }
+
+  submitTask() {
+    this.showSubmitConfirm = false;
+    const ids = Object.keys(this.appConfig[this.global.appMode]['selectedObjects']);
+    const verificationCode = this.utilsService.generateVerificationCode(this.global['participantId']);
+    localStorage.setItem(this.getSubmissionStorageKey(), 'true');
+    this.chatService.sendTaskSubmission({
+      participantId: this.global['participantId'],
+      participantIdSource: this.global['participantIdSource'],
+      appMode: this.global.appMode,
+      appType: this.global.appType,
+      appLevel: this.global.appLevel,
+      selected_subjects: ids,
+      verificationCode: verificationCode,
+    });
+    this.router.navigate(['/submitted'], { queryParamsHandling: 'preserve' });
+  }
+
   hoverSubject(subject: any) {
     this.appConfig[this.global.appMode]['hoveredObject'] = subject;
   }
@@ -193,6 +224,10 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
    * Required for ng.
    */
   ngOnInit(): void {
+    if (localStorage.getItem(this.getSubmissionStorageKey())) {
+      this.router.navigate(["/submitted"], { queryParamsHandling: "preserve" });
+      return;
+    }
     switch (this.global.appLevel) {
       case "practice":
         this.global.appMode = "cars.csv";

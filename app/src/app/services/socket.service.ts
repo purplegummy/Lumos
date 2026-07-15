@@ -45,6 +45,10 @@ export class ChatService {
     this.vizSocket.emit("on_selected_subjects", payload);
   }
 
+  sendTaskSubmission(payload) {
+    this.vizSocket.emit("on_task_submitted", payload);
+  }
+
   getDisconnectEventResponse() {
     return this.vizSocket.fromEvent("disconnect").pipe(map((obj) => obj));
   }

@@ -78,6 +78,10 @@ export class BallsIntoBinsComponent implements OnInit, OnChanges {
     for (let i = 0; i < overlap; i++) fitted[i] = source[i];
     return fitted;
   }
+  trackByBinIndex(index: number): number {
+    return index;
+  }
+
   getRemaining(): number {
     return this.binningService.ballCount - this.counts.reduce((a, b) => a + b, 0);
   }

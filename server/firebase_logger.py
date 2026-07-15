@@ -116,6 +116,22 @@ def save_selected_subjects(pid: str, subjects: list):
         print(f"[firebase_logger] save_selected_subjects error: {e}")
 
 
+def save_task_submission(pid: str, verification_code: str, subjects: list):
+    """Record that the participant submitted the task, with their verification code."""
+    db = _get_db()
+    if db is None:
+        return
+    try:
+        _participant_ref(db, pid).set({
+            "task_submitted": True,
+            "verification_code": verification_code,
+            "submitted_subjects": _sanitize(subjects),
+        }, merge=True)
+        print(f"[firebase_logger] Saved task submission for {pid}: {verification_code}")
+    except Exception as e:
+        print(f"[firebase_logger] save_task_submission error: {e}")
+
+
 def save_priors(pid: str, priors: dict):
     """Write each prior belief as its own Firestore document."""
     db = _get_db()
