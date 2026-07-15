@@ -241,6 +241,9 @@
                       <button class="btn btn-light btn-sm" (click)="resetAllEncodings()">
                         <i class="fa fa-times"></i>
                       </button>
+                      {{" "}}
+                      <!-- TEMP DEBUG: toggle the live metrics Logs panel -->
+                      <button class="btn btn-light btn-sm" (click)="showLogsPanel = !showLogsPanel">Logs</button>
                     </td>
                   </tr>
                 </table>
@@ -963,5 +966,78 @@
         <button class="btn btn-primary btn-sm" (click)="submitTask()">Yes, submit</button>
       </div>
     </div>
+  </div>
+
+  <!-- TEMP DEBUG: live metrics overlay. Sibling to the elicitation modal, not
+       inside it. Reads the stashed output_data (latestMetrics) with safe-nav so
+       null / pre-interaction states render placeholders, never blanks. -->
+  <div *ngIf="showLogsPanel" class="logs-panel">
+    <div class="logs-panel__header">
+      <span>Debug: live metrics</span>
+      <button type="button" class="logs-panel__close" (click)="showLogsPanel = false">&times;</button>
+    </div>
+
+    <div *ngIf="latestMetrics == null" class="logs-panel__empty">
+      No interactions yet.
+    </div>
+
+    <ng-container *ngIf="latestMetrics != null">
+      <!-- DC Bias -->
+      <div class="logs-panel__section">DC Bias</div>
+      <div class="logs-panel__row">
+        <span>real_time_bias</span>
+        <span>{{ latestMetrics?.dc_bias?.real_time_bias != null ? (latestMetrics.dc_bias.real_time_bias | number:'1.3-4') : '—' }}</span>
+      </div>
+      <div class="logs-panel__row">
+        <span>overall_interaction_bias</span>
+        <span>{{ latestMetrics?.dc_bias?.overall_interaction_bias != null ? (latestMetrics.dc_bias.overall_interaction_bias | number:'1.3-4') : '—' }}</span>
+      </div>
+      <div class="logs-panel__row">
+        <span>selection_bias</span>
+        <span>{{ latestMetrics?.dc_bias?.selection_bias != null ? (latestMetrics.dc_bias.selection_bias | number:'1.3-4') : '—' }}</span>
+      </div>
+      <div class="logs-panel__row">
+        <span>filter_bias</span>
+        <span>{{ latestMetrics?.dc_bias?.filter_bias != null ? (latestMetrics.dc_bias.filter_bias | number:'1.3-4') : '(n/a)' }}</span>
+      </div>
+      <div class="logs-panel__row">
+        <span>n_current</span>
+        <span>{{ latestMetrics?.dc_bias?.n_current != null ? latestMetrics.dc_bias.n_current : '—' }}</span>
+      </div>
+      <div class="logs-panel__row">
+        <span>n_interacted</span>
+        <span>{{ latestMetrics?.dc_bias?.n_interacted != null ? latestMetrics.dc_bias.n_interacted : '—' }}</span>
+      </div>
+      <div class="logs-panel__row">
+        <span>n_selected</span>
+        <span>{{ latestMetrics?.dc_bias?.n_selected != null ? latestMetrics.dc_bias.n_selected : '—' }}</span>
+      </div>
+
+      <!-- Dwell Bias -->
+      <div class="logs-panel__section">Dwell Bias</div>
+      <div *ngIf="latestMetrics?.dwell_bias == null" class="logs-panel__empty">
+        Dwell: n/a (no detailed map / not yet computed)
+      </div>
+      <ng-container *ngIf="latestMetrics?.dwell_bias != null">
+        <div class="logs-panel__row">
+          <span>dwell_bias</span>
+          <span>{{ latestMetrics?.dwell_bias?.dwell_bias != null ? (latestMetrics.dwell_bias.dwell_bias | number:'1.3-4') : '—' }}</span>
+        </div>
+        <div class="logs-panel__row">
+          <span>n_dwelled</span>
+          <span>{{ latestMetrics?.dwell_bias?.n_dwelled != null ? latestMetrics.dwell_bias.n_dwelled : '—' }}</span>
+        </div>
+        <div class="logs-panel__subsection">dwell_bias_v</div>
+        <div *ngIf="(latestMetrics?.dwell_bias?.dwell_bias_v | keyvalue)?.length; else noDwellV">
+          <div class="logs-panel__row" *ngFor="let kv of latestMetrics.dwell_bias.dwell_bias_v | keyvalue">
+            <span>{{ kv.key }}</span>
+            <span>{{ kv.value != null ? (kv.value | number:'1.3-4') : '—' }}</span>
+          </div>
+        </div>
+        <ng-template #noDwellV>
+          <div class="logs-panel__empty">dwell_bias_v: —</div>
+        </ng-template>
+      </ng-container>
+    </ng-container>
   </div>
 </div>
