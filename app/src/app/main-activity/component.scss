@@ -352,31 +352,30 @@
 }
 
 /** Selected Subjects Panel */
+.selected-subjects-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
 .selected-subjects-header {
   margin-bottom: 10px;
+  flex-shrink: 0;
 }
 
 .subject-hint {
   font-size: 0.78rem;
   color: #999;
   margin-bottom: 8px;
-}
-
-.subject-complete-banner {
-  font-size: 0.8rem;
-  color: #27ae60;
-  font-weight: 600;
-  margin-bottom: 8px;
-  padding: 4px 8px;
-  background: #eafaf1;
-  border-radius: 4px;
-  border: 1px solid #a9dfbf;
+  flex-shrink: 0;
 }
 
 .subject-list {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  /* reserve room for all 10 rows so the submit button below never shifts as teens are added */
+  min-height: calc(10 * (1.3em + 12px + 1px));
 }
 
 .subject-row {
@@ -423,7 +422,8 @@
 .subject-submit-btn {
   display: block;
   width: 100%;
-  margin-bottom: 8px;
+  margin-top: 12px;
+  flex-shrink: 0;
 }
 
 .confirm-modal-backdrop {

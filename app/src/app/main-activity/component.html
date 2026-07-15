@@ -1,6 +1,6 @@
 <!-- Top Navigation Bar -->
 <nav class="navbar navbar-light bg-light">
-  <div class="navbar-collapse collapse show justify-content-between align-items-center w-100" id="collapsingNavbar2">
+  <div class="navbar-collapse collapse show align-items-center w-100" id="collapsingNavbar2">
     <div class="navbar-brand">Lumos</div>
   </div>
 </nav>
@@ -889,8 +889,8 @@
 
         <!-- ROW: Selected Subjects Panel (CONTROL only) -->
         <as-split-area *ngIf="global.appLayout === 'CONTROL'" [size]="100">
-          <div class="list-group h-100" style="overflow: auto">
-            <article class="list-group-item">
+          <div class="list-group h-100">
+            <article class="list-group-item selected-subjects-panel">
 
               <!-- Header -->
               <header class="selected-subjects-header">
@@ -900,19 +900,6 @@
                   </span>
                 </h5>
               </header>
-
-              <!-- Completion banner -->
-              <div *ngIf="objectKeys(appConfig[global.appMode]['selectedObjects']).length === 10"
-                   class="subject-complete-banner">
-                <i class="fa fa-check-circle"></i> Selection complete!
-              </div>
-
-              <!-- Submit task -->
-              <button *ngIf="objectKeys(appConfig[global.appMode]['selectedObjects']).length === 10"
-                      class="btn btn-primary btn-sm subject-submit-btn"
-                      (click)="confirmSubmit()">
-                Submit Task
-              </button>
 
               <!-- Hint when incomplete -->
               <div *ngIf="objectKeys(appConfig[global.appMode]['selectedObjects']).length < 10"
@@ -932,13 +919,20 @@
                     <i class="fa fa-times"></i>
                   </button>
                 </div>
+
+                <!-- Empty state -->
+                <div *ngIf="objectKeys(appConfig[global.appMode]['selectedObjects']).length === 0"
+                     class="subject-empty">
+                  No teens selected yet.
+                </div>
               </div>
 
-              <!-- Empty state -->
-              <div *ngIf="objectKeys(appConfig[global.appMode]['selectedObjects']).length === 0"
-                   class="subject-empty">
-                No teens selected yet.
-              </div>
+              <!-- Submit task -->
+              <button class="btn btn-primary btn-sm subject-submit-btn"
+                      [disabled]="objectKeys(appConfig[global.appMode]['selectedObjects']).length < 10"
+                      (click)="confirmSubmit()">
+                Submit Task
+              </button>
 
             </article>
           </div>
