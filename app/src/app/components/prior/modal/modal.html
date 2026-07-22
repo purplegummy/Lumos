@@ -5,6 +5,11 @@
     <div class="modal-header">
       <div class="modal-header-left">
 
+        <!-- practice-round banner (tutorial only) -->
+        <div *ngIf="practiceMode" class="step-badge" style="background:#fff3cd; color:#856404; margin-bottom:6px; display:inline-block;">
+          Practice round: sample data, nothing is recorded
+        </div>
+
         <!-- completion state -->
         <div *ngIf="done">
           <div class="modal-title">All done!</div>
@@ -18,12 +23,12 @@
             {{ cleanAttr(selectedAttribute) }}
           </div>
           <div class="modal-instruction">
-            <span class="condition-step-badge">{{ conditionStep }} / 2</span>
-            Think only about the <span class="condition-highlight">{{ conditionLabel }}</span>.
             Below are ranges of <strong>{{ cleanAttr(selectedAttribute) }}</strong>.
-            You have <strong>{{ binningService.ballCount }} tokens</strong> — place them across the ranges to show
-            how common you think each range is among these teens.
-            More tokens mean more common. You must place all {{ binningService.ballCount }}.
+            For each range, place tokens to show how common you think it is among these {{ subjectNounPlural }}:
+            <span class="legend-dot legend-dot-a"></span> <strong>{{ labelFor('diagnosed') }}</strong> and
+            <span class="legend-dot legend-dot-b"></span> <strong>{{ labelFor('not_diagnosed') }}</strong>.
+            You have <strong>{{ binningService.ballCount }} tokens</strong> for each group. More tokens mean more common.
+            You must place all {{ binningService.ballCount }} of each.
           </div>
         </div>
 
@@ -34,18 +39,11 @@
             How confident are you?
           </div>
           <div class="modal-instruction">
-            <span class="condition-step-badge">{{ conditionStep }} / 2</span>
-            Rate your confidence in this distribution for
-            <strong>{{ cleanAttr(selectedAttribute) }}</strong> among the
-            <span class="condition-highlight">{{ conditionLabel }}</span>.
+            Rate your confidence in the distributions you just placed for
+            <strong>{{ cleanAttr(selectedAttribute) }}</strong>.
           </div>
         </div>
 
-      </div>
-
-      <div *ngIf="!done && !confidenceStep" class="modal-balls-counter" [class.complete]="remaining === 0">
-        <span class="modal-balls-count" [ngClass]="counterClass">{{ remaining }}</span>
-        <span class="modal-balls-label">tokens left</span>
       </div>
 
       <button class="modal-close" (click)="close()" [disabled]="!canClose" [title]="canClose ? '' : 'Complete all steps before closing'">✕</button>
@@ -61,17 +59,63 @@
 
       <!-- balls and bins ui -->
       <div *ngIf="!done && !confidenceStep">
-        <div class="preset-bar">
-          <button class="reset-link" (click)="setUniform()">⊟ Uniform</button>
-          <button class="reset-link" (click)="reset()">↺ Reset</button>
+
+        <!-- diagnosed (teal) distribution -->
+        <div class="series-block">
+          <div class="series-block-header">
+            <button class="series-toggle" (click)="toggleSeriesA()">
+              <i class="fa" [ngClass]="seriesACollapsed ? 'fa-chevron-right' : 'fa-chevron-down'"></i>
+              <span class="legend-dot legend-dot-a"></span> {{ labelFor('diagnosed') }}
+            </button>
+            <div class="modal-balls-counter counter-a" [class.complete]="remainingA === 0">
+              <span class="modal-balls-count" [ngClass]="counterClassA">{{ remainingA }}</span>
+              <span class="modal-balls-label">left</span>
+            </div>
+          </div>
+          <div *ngIf="!seriesACollapsed">
+            <div class="preset-bar">
+              <button class="reset-link" (click)="setUniformA()">⊟ Uniform</button>
+              <button class="reset-link" (click)="resetA()">↺ Reset</button>
+            </div>
+            <div class="histogram-box">
+              <app-balls-into-bins
+                [values]="currentValues"
+                [fixedBins]="currentFixedBins"
+                [initialCounts]="draftCountsA"
+                seriesColor="a"
+                (countsChange)="onCountsAChange($event)"
+              ></app-balls-into-bins>
+            </div>
+          </div>
         </div>
-        <div class="histogram-box">
-          <app-balls-into-bins
-            [values]="currentValues"
-            [fixedBins]="currentFixedBins"
-            [initialCounts]="draftCounts"
-            (countsChange)="onCountsChange($event)"
-          ></app-balls-into-bins>
+
+        <!-- not_diagnosed (orange) distribution -->
+        <div class="series-block">
+          <div class="series-block-header">
+            <button class="series-toggle" (click)="toggleSeriesB()">
+              <i class="fa" [ngClass]="seriesBCollapsed ? 'fa-chevron-right' : 'fa-chevron-down'"></i>
+              <span class="legend-dot legend-dot-b"></span> {{ labelFor('not_diagnosed') }}
+            </button>
+            <div class="modal-balls-counter counter-b" [class.complete]="remainingB === 0">
+              <span class="modal-balls-count" [ngClass]="counterClassB">{{ remainingB }}</span>
+              <span class="modal-balls-label">left</span>
+            </div>
+          </div>
+          <div *ngIf="!seriesBCollapsed">
+            <div class="preset-bar">
+              <button class="reset-link" (click)="setUniformB()">⊟ Uniform</button>
+              <button class="reset-link" (click)="resetB()">↺ Reset</button>
+            </div>
+            <div class="histogram-box">
+              <app-balls-into-bins
+                [values]="currentValues"
+                [fixedBins]="currentFixedBins"
+                [initialCounts]="draftCountsB"
+                seriesColor="b"
+                (countsChange)="onCountsBChange($event)"
+              ></app-balls-into-bins>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -96,9 +140,9 @@
     <div class="modal-footer">
       <button *ngIf="!done && !isFirstStep" (click)="goBack()">Back</button>
       <button *ngIf="done" class="primary" (click)="close()">Close</button>
-      <button *ngIf="!done && !confidenceStep" class="primary" (click)="save()" [disabled]="remaining > 0">Save & continue</button>
+      <button *ngIf="!done && !confidenceStep" class="primary" (click)="save()" [disabled]="!canSave">Save & continue</button>
       <button *ngIf="!done && confidenceStep" class="primary" (click)="submitConfidence()" [disabled]="confidenceRating === null">
-        {{ currentCondition === 'diagnosed' ? 'Next: No diagnosis →' : (currentStep < totalSteps ? 'Next attribute →' : 'Finish') }}
+        {{ currentStep < totalSteps ? 'Next attribute →' : 'Finish' }}
       </button>
     </div>
 
