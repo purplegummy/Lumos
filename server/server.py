@@ -257,7 +257,11 @@ async def on_interaction(sid, data):
     # check whether to compute bias metrics or not
     if interaction_type in COMPUTE_BIAS_FOR_TYPES:
         CLIENTS[pid]["bias_logs"].append(data)
-        metrics = bias.compute_metrics(app_mode, CLIENTS[pid]["bias_logs"], CLIENTS[pid]["priors"])
+        metrics = bias.compute_metrics(
+            app_mode,
+            CLIENTS[pid]["bias_logs"],
+            dc_adapter.flatten_priors_for_bias(CLIENTS[pid]["priors"]),
+        )
 
         # --- DC phase metrics: read the CACHED dc_map (never recompute here) ---
         # Present only once elicitation is complete; absent/None otherwise (not
