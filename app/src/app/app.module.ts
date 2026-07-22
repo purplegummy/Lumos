@@ -25,6 +25,7 @@ import { BinColumnComponent } from "./components/prior/ballsbins/bincol";
 import { BallsIntoBinsComponent } from "./components/prior/ballsbins/bib";
 import { ElicitationModalComponent } from "./components/prior/modal/modal";
 import { SubmissionCompleteComponent } from "./submission-complete/component";
+import { TaskIntroComponent } from "./task-intro/component";
 
 const config: SocketIoConfig = {
   url: DeploymentConfig.SERVER_URL,
@@ -38,7 +39,8 @@ const config: SocketIoConfig = {
     BinColumnComponent,
     BallsIntoBinsComponent,
     ElicitationModalComponent,
-    SubmissionCompleteComponent
+    SubmissionCompleteComponent,
+    TaskIntroComponent
   ],
   imports: [
     NgMultiSelectDropDownModule.forRoot(),

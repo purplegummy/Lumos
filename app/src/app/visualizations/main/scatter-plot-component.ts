@@ -350,6 +350,13 @@ export class ScatterPlot {
             ? context.utilsService.clickRemoveItem(context, event, d)
             : context.utilsService.clickAddItem(context, event, d);
         }
+        // The selection stroke normally repaints once the server's
+        // interaction round trip triggers a redraw, but that round trip is
+        // a no-op in tutorial mode (by design), so paint it locally too --
+        // harmless if the real redraw also happens later.
+        d3.select(this)
+          .style("stroke-width", d["selected"] ? "3px" : "1px")
+          .style("stroke", d["selected"] ? "brown" : "black");
       })
       .on("mouseover", function (event, d) {
         if (context.global.appLayout === 'CONTROL') {

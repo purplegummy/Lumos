@@ -10,6 +10,7 @@ export class BallsIntoBinsComponent implements OnInit, OnChanges {
   @Input() values: number[] = [];
   @Input() initialCounts: number[] = [];
   @Input() fixedBins: Bin[] = [];   // when set, skips computation from values
+  @Input() seriesColor: 'a' | 'b' = 'a';
   @Output() countsChange = new EventEmitter<number[]>();
 
   bins: Bin[] = [];

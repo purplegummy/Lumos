@@ -18,6 +18,8 @@ import { BarChart } from "../visualizations/main/bar-chart-component";
 import { LineChart } from "../visualizations/main/line-chart-component";
 import { AttributeDistributionPlotConfig } from "../visualizations/awareness/component";
 import { PriorBeliefStore } from "../store/prior-belief.store";
+import { isTutorialRequested, startTutorial, exitTutorial, startElicitationIntro } from "./tutorial";
+import { cleanAttr } from "../models/attribute-labels";
 window.addEventListener("beforeunload", function (e) {
   // Cancel the event
   e.preventDefault(); // If you prevent default behavior in Mozilla Firefox prompt will always be shown
@@ -38,6 +40,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   objectKeys: { (o: object): string[]; (o: {}): string[] };
   objectValues: any;
   math: Math;
+  cleanAttr = cleanAttr;
   userConfig: any;
   appConfig: any;
   currentPlotType: string;
@@ -59,6 +62,21 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   expandedFilters: Set<string> = new Set();
   toggleFilterExpand(attr: string) { this.expandedFilters.has(attr) ? this.expandedFilters.delete(attr) : this.expandedFilters.add(attr); }
   private _lastLoggedChartType: string | null = undefined;
+  // Real task requires 10 selections; the tutorial's dummy dataset only needs
+  // a handful so the walkthrough stays quick.
+  get requiredSelections(): number {
+    return this.global.isTutorial ? 3 : 10;
+  }
+
+  // Phase 1 (prior belief elicitation) must fully finish before phase 2 (the
+  // interactive page tour) starts — starting it earlier means it renders
+  // underneath the still-open elicitation modal.
+  onPriorModalClosed(): void {
+    this.showPriorModal = false;
+    if (this.global.isTutorial) {
+      startTutorial();
+    }
+  }
 
   constructor(
     private route: ActivatedRoute,
@@ -76,6 +94,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     this.userConfig = UserConfig; // access all user settings here
     this.appConfig = initializeAppModes(AppConfig); // access all app settings here
     this.appConfig["mental_health_data.csv"]["chartType"] = "scatterplot";
+    this.appConfig["tutorial_data.csv"]["chartType"] = "scatterplot";
     this.currentPlotType = null; // default plot type
     this.currentPlotInstance = null; // default plot instance
     this.scatterPlotInstance = createPlotInstance(this, ScatterPlot);
@@ -94,6 +113,13 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
       if (rawType && validTypes.includes(resolvedType)) {
         this.global.appLayout = resolvedType;
         this.global.appType = resolvedType;
+      }
+      // Tutorial walkthrough: always CONTROL layout, dummy dataset, no logging.
+      if (isTutorialRequested(params)) {
+        this.global.isTutorial = true;
+        this.global.appLayout = "CONTROL";
+        this.global.appType = "CONTROL";
+        this.chatService.setTutorialMode(true);
       }
     });
     this.qFilterSliderConfig = (attribute) => {
@@ -135,6 +161,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   /** ========================= SUBJECT SELECTION METHODS ====================== */
 
   showSubmitConfirm = false;
+  showInstructionsModal = false;
 
   private getSubmissionStorageKey(): string {
     return `lumos_submitted_${this.global.participantId}`;
@@ -150,6 +177,14 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
 
   submitTask() {
     this.showSubmitConfirm = false;
+    // Tutorial "submit" must never write the real submission flag (it's keyed
+    // by the same participantId as the live task) or navigate to /submitted.
+    // Instead, finishing the dummy task is how the tutorial hands off to the
+    // real CONTROL task.
+    if (this.global.isTutorial) {
+      exitTutorial();
+      return;
+    }
     const ids = Object.keys(this.appConfig[this.global.appMode]['selectedObjects']);
     const verificationCode = this.utilsService.generateVerificationCode(this.global['participantId']);
     localStorage.setItem(this.getSubmissionStorageKey(), 'true');
@@ -206,6 +241,28 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     return result;
   }
 
+  // Elicitation is gated by attribute count, not row count, so the real
+  // schema (6 attributes x 2 conditions x 2 steps = 24 steps) would make the
+  // tutorial anything but quick. Restrict it to a single attribute so
+  // phase 1 stays real but short.
+  getElicitationAttributes(): string[] {
+    const qAttrs = this.appConfig[this.global.appMode]?.attributeDatatypeList?.Q || [];
+    return this.global.isTutorial ? ["Price"] : qAttrs;
+  }
+
+  getElicitationCategoricalValues(): Record<string, string[]> {
+    return this.global.isTutorial ? {} : this.getCategoricalValues();
+  }
+
+  // The real modal's "diagnosed / not diagnosed" wording doesn't apply to
+  // the tutorial's unrelated dummy dataset, so swap in a concrete split that
+  // actually exists in the sample housing data ("Central Air": Y/N).
+  getElicitationConditionLabels(): { diagnosed?: string; not_diagnosed?: string } {
+    return this.global.isTutorial
+      ? { diagnosed: "homes with central air conditioning", not_diagnosed: "homes without central air conditioning" }
+      : {};
+  }
+
   getCategoricalValues(): Record<string, string[]> {
     const data = this.userConfig["originalDataset"];
     if (!data) return {};
@@ -231,13 +288,17 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
       this.router.navigate(["/submitted"], { queryParamsHandling: "preserve" });
       return;
     }
-    switch (this.global.appLevel) {
-      case "practice":
-        this.global.appMode = "cars.csv";
-        break;
-      case "live":
-        this.global.appMode = "mental_health_data.csv";
-        break;
+    if (this.global.isTutorial) {
+      this.global.appMode = "tutorial_data.csv";
+    } else {
+      switch (this.global.appLevel) {
+        case "practice":
+          this.global.appMode = "cars.csv";
+          break;
+        case "live":
+          this.global.appMode = "mental_health_data.csv";
+          break;
+      }
     }
     switch (this.global.appType) {
       case "CONTROL":
@@ -377,8 +438,8 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
         context.removeFilter(attr, false, false);
       });
 
-      // For the mental health dataset, show all filters by default
-      if (context.global.appMode === "mental_health_data.csv") {
+      // For the mental health dataset (and its tutorial stand-in), show all filters by default
+      if (context.global.appMode === "mental_health_data.csv" || context.global.appMode === "tutorial_data.csv") {
         dataset.attributeList.forEach((attr: string) => {
           if (attr !== "id") dataset["attributes"][attr]["filter"] = true;
         });
@@ -486,6 +547,10 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
       });
 
       context.showPriorModal = true;
+      if (context.global.isTutorial) {
+        // Let Angular render the modal before driver.js queries its DOM.
+        setTimeout(() => startElicitationIntro(), 150);
+      }
     });
   }
 

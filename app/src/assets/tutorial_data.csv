@@ -1,0 +1,11 @@
+id,Lot Area,Lot Config,Home Type,Roof Style,Foundation Type,Basement Area,Heating Type,Central Air,Rooms,Fireplaces,Garage Type,Fence Type,Year,Price,Satisfaction
+p01,11241,CulDSac,Single Family,Gable,CBlock,1004,GasA,Y,5,1,Attchd,NA,2010,149000,8
+p02,8246,Inside,Single Family,Gable,CBlock,1060,GasA,Y,6,1,Attchd,MnPrv,2010,154000,8
+p03,7200,Corner,Single Family,Gable,CBlock,900,GasA,Y,5,0,Detchd,NA,2010,134800,3
+p04,11478,Inside,Single Family,Gable,PConc,1704,GasA,Y,7,1,Attchd,NA,2010,306000,5
+p05,10552,Inside,Single Family,Hip,CBlock,1398,GasA,Y,6,1,Attchd,NA,2010,165500,3
+p06,7922,Inside,Single Family,Gable,CBlock,1057,GasA,Y,5,0,Detchd,NA,2010,109000,5
+p08,8472,Corner,Duplex,Gable,CBlock,816,GasA,N,5,0,CarPort,NA,2010,110000,8
+p13,5790,Corner,Single Family,Gambrel,CBlock,840,GasA,N,8,0,Detchd,NA,2010,107400,10
+p14,10778,Inside,Duplex,Hip,CBlock,1768,GasA,N,8,0,NA,NA,2010,136500,8
+p15,10625,Corner,Single Family,Gable,BrkTil,458,GasA,N,5,0,Basment,NA,2010,83000,3
