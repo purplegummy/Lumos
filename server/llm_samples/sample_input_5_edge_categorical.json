@@ -1,0 +1,21 @@
+{
+  "_description": "Edge case: the categorical variable dominates; filter_ranges must be a category list, not [lo, hi].",
+  "phase": "realtime",
+  "trigger": true,
+  "dwell_bias": 0.24,
+  "point_level_dwell_bias_percentile": 0.91,
+  "diagnosis_focus": "Yes",
+  "dwell_bias_v": {
+    "difficulty_making_friends": 0.5,
+    "screen_time_weekday": 0.08,
+    "hours_sleep_weeknight": 0.05,
+    "days_physical_activity_week": 0.02
+  },
+  "attended_direction": {
+    "difficulty_making_friends": "more_difficulty",
+    "screen_time_weekday": "higher",
+    "hours_sleep_weeknight": "lower",
+    "days_physical_activity_week": "lower"
+  },
+  "previous_interventions": []
+}
