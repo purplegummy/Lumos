@@ -24,6 +24,7 @@ export class SessionPage {
   // "appType": string = this.utils.generateRandomAppType(); // CONTROL / AWARENESS
   "appType": string = "AWARENESS"; // CONTROL | ADMIN | AWARENESS
   "appLayout": string = "AWARENESS"; // tracks original URL ?type= for layout purposes
+  "isTutorial": boolean = false; // true when running the dummy-data walkthrough (?tutorial=1)
 }
 
 export const DeploymentConfig = Object.freeze({
@@ -1025,6 +1026,137 @@ export const AppConfig = {
       },
       ever_diagnosed_dep_or_anx: {
         name: "ever_diagnosed_dep_or_anx",
+        datatype: "N",
+        types: [],
+        filterModel: [],
+      },
+    },
+  },
+  // A small (10-row) sample of the housing dataset above — unrelated to the
+  // real study's dataset (teens/mental health) so the tutorial never reads
+  // as real study data, but still real, explainable data rather than
+  // something invented from scratch.
+  "tutorial_data.csv": {
+    dataset: "tutorial_data.csv",
+    primaryKey: "id",
+    labelKey: "",
+    chartType: "scatterplot",
+    orderedAttributeList: [
+      "id",
+      "Fireplaces",
+      "Lot Area",
+      "Price",
+      "Rooms",
+      "Satisfaction",
+      "Year",
+      "Central Air",
+      "Fence Type",
+      "Foundation Type",
+      "Garage Type",
+      "Heating Type",
+      "Home Type",
+      "Lot Config",
+      "Roof Style",
+    ],
+    attributes: {
+      Rooms: {
+        name: "Rooms",
+        datatype: "Q",
+        max: -Infinity,
+        step: 1,
+        min: Infinity,
+        filterModel: [0, 1],
+      },
+      Fireplaces: {
+        name: "Fireplaces",
+        datatype: "Q",
+        max: -Infinity,
+        step: 1,
+        min: Infinity,
+        filterModel: [0, 1],
+      },
+      Price: {
+        name: "Price",
+        datatype: "Q",
+        max: -Infinity,
+        step: 1,
+        min: Infinity,
+        filterModel: [0, 1],
+      },
+      Satisfaction: {
+        name: "Satisfaction",
+        datatype: "Q",
+        max: -Infinity,
+        step: 1,
+        min: Infinity,
+        filterModel: [0, 1],
+      },
+      "Lot Area": {
+        name: "Lot Area",
+        datatype: "Q",
+        max: -Infinity,
+        step: 1,
+        min: Infinity,
+        filterModel: [0, 1],
+      },
+      Year: {
+        name: "Year",
+        datatype: "T",
+        max: -Infinity,
+        step: 1,
+        min: Infinity,
+        filterModel: [0, 1],
+      },
+      id: {
+        name: "id",
+        datatype: "N",
+        types: [],
+        filterModel: [],
+      },
+      "Lot Config": {
+        name: "Lot Config",
+        datatype: "N",
+        types: [],
+        filterModel: [],
+      },
+      "Home Type": {
+        name: "Home Type",
+        datatype: "N",
+        types: [],
+        filterModel: [],
+      },
+      "Roof Style": {
+        name: "Roof Style",
+        datatype: "N",
+        types: [],
+        filterModel: [],
+      },
+      "Foundation Type": {
+        name: "Foundation Type",
+        datatype: "N",
+        types: [],
+        filterModel: [],
+      },
+      "Heating Type": {
+        name: "Heating Type",
+        datatype: "N",
+        types: [],
+        filterModel: [],
+      },
+      "Central Air": {
+        name: "Central Air",
+        datatype: "N",
+        types: [],
+        filterModel: [],
+      },
+      "Garage Type": {
+        name: "Garage Type",
+        datatype: "N",
+        types: [],
+        filterModel: [],
+      },
+      "Fence Type": {
+        name: "Fence Type",
         datatype: "N",
         types: [],
         filterModel: [],

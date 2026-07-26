@@ -30,8 +30,13 @@
   flex-shrink: 0;
 }
 
-.cell.filled::after {
-  background: #3a6ea5;
+.cell.filled.cell-a::after {
+  background: #2e8b7d;
+  box-shadow: inset 0 0 0 1px #1a1a1a;
+}
+
+.cell.filled.cell-b::after {
+  background: #e2913f;
   box-shadow: inset 0 0 0 1px #1a1a1a;
 }
 
@@ -99,6 +104,8 @@
   transition: transform 80ms ease-out;
 }
 
+.count-a { color: #2e8b7d; }
+.count-b { color: #e2913f; }
 
 .label {
   font-size: 0.65rem;

@@ -1,0 +1,68 @@
+.task-intro-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100vw;
+  min-height: 100vh;
+  background: #fff;
+  padding: 40px 16px;
+  box-sizing: border-box;
+}
+
+.task-intro-card {
+  max-width: 620px;
+}
+
+.task-intro-eyebrow {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #888;
+  margin-bottom: 8px;
+}
+
+.task-intro-card h1 {
+  margin: 0 0 2px;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #1a1a1a;
+  line-height: 1.25;
+}
+
+.task-intro-card h2 {
+  margin: 0 0 20px;
+  font-size: 1rem;
+  font-weight: 500;
+  color: #666;
+}
+
+.task-intro-card p {
+  color: #333;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  margin: 0 0 14px;
+}
+
+.task-intro-card ul {
+  margin: 0 0 16px;
+  padding-left: 20px;
+  color: #333;
+  font-size: 0.92rem;
+  line-height: 1.7;
+}
+
+.task-intro-note {
+  font-size: 0.85rem;
+  color: #666;
+  background: #f7f7f5;
+  border-left: 3px solid #ddd;
+  padding: 10px 14px;
+  border-radius: 2px;
+}
+
+.task-intro-start-btn {
+  margin-top: 8px;
+  padding: 8px 22px;
+  font-size: 0.95rem;
+}

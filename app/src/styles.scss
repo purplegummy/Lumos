@@ -1,0 +1,25 @@
+// driver.js (used by the CONTROL tutorial) sets pointer-events:none on
+// everything except the highlighted element while a tour is active, and its
+// overlay sits at z-index:10000. ng-select renders its dropdown option list
+// via appendTo="body" (a separate DOM node, not a child of whatever's
+// highlighted, and with no z-index of its own) — so while a tour is active
+// it was both unclickable AND visually painted underneath the darkened
+// overlay. Both are fixed here.
+.driver-active .ng-dropdown-panel {
+  z-index: 10001 !important;
+}
+.driver-active .ng-dropdown-panel,
+.driver-active .ng-dropdown-panel * {
+  pointer-events: auto !important;
+}
+
+// Same problem, different trigger: once the tour's highlighted step moves
+// off #plot_container (e.g. to the Details panel, right after hovering a
+// point), the plot loses its pointer-events exemption and the browser fires
+// a real mouseleave, clearing the app's own hover state right as we want to
+// show it populated. Keep the plot interactive for the tour's whole
+// duration, not just while it happens to be the highlighted element.
+.driver-active #plot_container,
+.driver-active #plot_container * {
+  pointer-events: auto !important;
+}

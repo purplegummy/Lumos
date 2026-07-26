@@ -11,6 +11,9 @@ export class BinColumnComponent implements OnChanges {
   @Input() count: number = 0;
   @Input() maxBalls: number = 30;
   @Input() remaining: number = 30;
+  // Which distribution this column belongs to — purely a color choice, set
+  // once by the parent <app-balls-into-bins> instance (one per condition).
+  @Input() seriesColor: 'a' | 'b' = 'a';
 
   @Output() increment = new EventEmitter<void>();
   @Output() decrement = new EventEmitter<void>();

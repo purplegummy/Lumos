@@ -4,18 +4,7 @@ import { PriorBeliefStore } from '../../../store/prior-belief.store';
 import { BinningService } from '../../../services/binning.service';
 import { ChatService } from '../../../services/socket.service';
 import { SessionPage } from '../../../models/config';
-
-const ATTR_LABELS: Record<string, string> = {
-  child_age_years:               'Age (years)',
-  child_sex:                     'Sex',
-  screen_time_weekday:           'Daily Screen Time (hours)',
-  hours_sleep_weeknight:         'Sleep Hours (weeknight)',
-  days_physical_activity_week:   'Physical Activity (days/week)',
-  difficulty_making_friends:     'Difficulty Making Friends',
-  ever_diagnosed_depression:     'Diagnosed with Depression',
-  ever_diagnosed_anxiety:        'Diagnosed with Anxiety',
-  ever_diagnosed_dep_or_anx:     'Diagnosed with Depression or Anxiety',
-};
+import { cleanAttr } from '../../../models/attribute-labels';
 
 const CONDITION_LABEL: Record<PriorCondition, string> = {
   diagnosed:     'teens who have been diagnosed with depression or anxiety',
@@ -32,27 +21,43 @@ export class ElicitationModalComponent implements OnInit {
   @Input() attributes: string[] = [];
   @Input() columnValues: Record<string, number[]> = {};
   @Input() categoricalValues: Record<string, string[]> = {};
+  @Input() practiceMode: boolean = false;
+  // Overrides CONDITION_LABEL below — used by the tutorial to swap in
+  // domain-neutral wording for its unrelated dummy dataset, without touching
+  // the real task's "diagnosed/not diagnosed" copy.
+  @Input() conditionLabels: Partial<Record<PriorCondition, string>> = {};
+  // Same idea as conditionLabels: the modal's instruction copy says "...among
+  // these teens" by default (the real dataset). Tutorial overrides this to
+  // match its own unrelated dummy dataset.
+  @Input() subjectNounPlural: string = 'teens';
 
   @Output() closed = new EventEmitter<void>();
 
   currentAttrIndex = 0;
   done = false;
-  currentCondition: PriorCondition = 'diagnosed';
-  draftCounts: number[] = [];
+  // Both conditions' distributions are placed together on one screen now, so
+  // there's only one flag needed per attribute: are we placing tokens, or
+  // rating confidence in what was just placed.
   confidenceStep = false;
+  draftCountsA: number[] = []; // 'diagnosed'
+  draftCountsB: number[] = []; // 'not_diagnosed'
   confidenceRating: number = 50;
-  private pendingBelief: PriorBelief | null = null;
-  private draftsByCondition: Partial<Record<PriorCondition, number[]>> = {};
+  private pendingBeliefA: PriorBelief | null = null;
+  private pendingBeliefB: PriorBelief | null = null;
 
   get selectedAttribute(): string {
     return this.allAttributes[this.currentAttrIndex] ?? '';
   }
 
-  get totalSteps(): number { return this.allAttributes.length; }
-  get currentStep(): number { return this.currentAttrIndex + 1; }
+  // Each attribute is 2 screens now (combined distribution, then one shared
+  // confidence rating), so the counter should reflect actual screens, not
+  // just attributes -- otherwise "Step X of Y" shows the same number for
+  // both screens of an attribute.
+  get totalSteps(): number { return this.allAttributes.length * 2; }
+  get currentStep(): number { return this.currentAttrIndex * 2 + (this.confidenceStep ? 2 : 1); }
 
   get isFirstStep(): boolean {
-    return this.currentAttrIndex === 0 && this.currentCondition === 'diagnosed' && !this.confidenceStep;
+    return this.currentAttrIndex === 0 && !this.confidenceStep;
   }
 
   constructor(
@@ -70,17 +75,11 @@ export class ElicitationModalComponent implements OnInit {
     return this.attributes.concat(Object.keys(this.categoricalValues));
   }
 
-  get conditionLabel(): string {
-    return CONDITION_LABEL[this.currentCondition];
+  labelFor(condition: PriorCondition): string {
+    return this.conditionLabels[condition] ?? CONDITION_LABEL[condition];
   }
 
-  cleanAttr(attr: string): string {
-    return ATTR_LABELS[attr] ?? attr.replace(/_/g, ' ');
-  }
-
-  get conditionStep(): number {
-    return this.currentCondition === 'diagnosed' ? 1 : 2;
-  }
+  cleanAttr = cleanAttr;
 
   isCategorical(attr: string): boolean {
     return attr in this.categoricalValues;
@@ -96,130 +95,152 @@ export class ElicitationModalComponent implements OnInit {
     return this.binningService.categoricalBins(this.categoricalValues[this.selectedAttribute]);
   }
 
-  get remaining(): number {
-    return this.binningService.ballCount - this.draftCounts.reduce((a, b) => a + b, 0);
+  get remainingA(): number {
+    return this.binningService.ballCount - this.draftCountsA.reduce((a, b) => a + b, 0);
+  }
+  get remainingB(): number {
+    return this.binningService.ballCount - this.draftCountsB.reduce((a, b) => a + b, 0);
+  }
+
+  private _emptyCounts(): number[] {
+    if (!this.selectedAttribute) return [];
+    if (this.isCategorical(this.selectedAttribute)) {
+      return this.binningService.emptyCountsFor(this.categoricalValues[this.selectedAttribute].length);
+    }
+    const bins = this.binningService.computeBins(this.currentValues);
+    return this.binningService.emptyCountsFor(bins.length);
   }
 
   private _loadDraft() {
     if (!this.selectedAttribute) return;
-    if (this.draftsByCondition[this.currentCondition]) {
-      this.draftCounts = this.draftsByCondition[this.currentCondition]!.slice();
-    } else {
-      const existing = this.store.getBelief(this.datasetId, this.selectedAttribute, this.currentCondition);
-      if (existing) {
-        this.draftCounts = existing.counts.slice();
-        this.draftsByCondition[this.currentCondition] = existing.counts.slice();
-      } else if (this.isCategorical(this.selectedAttribute)) {
-        this.draftCounts = this.binningService.emptyCountsFor(this.categoricalValues[this.selectedAttribute].length);
-      } else {
-        const bins = this.binningService.computeBins(this.currentValues);
-        this.draftCounts = this.binningService.emptyCountsFor(bins.length);
-      }
-    }
+    const existingA = this.store.getBelief(this.datasetId, this.selectedAttribute, 'diagnosed');
+    const existingB = this.store.getBelief(this.datasetId, this.selectedAttribute, 'not_diagnosed');
+    this.draftCountsA = existingA ? existingA.counts.slice() : this._emptyCounts();
+    this.draftCountsB = existingB ? existingB.counts.slice() : this._emptyCounts();
   }
 
-  counterClass: 'pop-a' | 'pop-b' = 'pop-a';
+  counterClassA: 'pop-a' | 'pop-b' = 'pop-a';
+  counterClassB: 'pop-a' | 'pop-b' = 'pop-a';
 
-  onCountsChange(counts: number[]) {
-    this.draftCounts = counts;
-    this.draftsByCondition[this.currentCondition] = counts.slice();
-    this.counterClass = this.counterClass === 'pop-a' ? 'pop-b' : 'pop-a';
+  // Lets participants collapse either distribution's grid (across all bins
+  // at once) to cut down on vertical space, without losing track of counts.
+  seriesACollapsed = false;
+  seriesBCollapsed = false;
+  toggleSeriesA() { this.seriesACollapsed = !this.seriesACollapsed; }
+  toggleSeriesB() { this.seriesBCollapsed = !this.seriesBCollapsed; }
+
+  onCountsAChange(counts: number[]) {
+    this.draftCountsA = counts;
+    this.counterClassA = this.counterClassA === 'pop-a' ? 'pop-b' : 'pop-a';
+  }
+
+  onCountsBChange(counts: number[]) {
+    this.draftCountsB = counts;
+    this.counterClassB = this.counterClassB === 'pop-a' ? 'pop-b' : 'pop-a';
   }
 
   hasPrior(attr: string): boolean {
     return this.store.hasBothBeliefs(this.datasetId, attr);
   }
 
-  hasConditionPrior(attr: string, condition: PriorCondition): boolean {
-    return !!this.store.getBelief(this.datasetId, attr, condition);
+  resetA() {
+    this.draftCountsA = this._emptyCounts();
+  }
+  resetB() {
+    this.draftCountsB = this._emptyCounts();
   }
 
-  reset() {
-    if (this.selectedAttribute && this.isCategorical(this.selectedAttribute)) {
-      this.draftCounts = this.binningService.emptyCountsFor(this.categoricalValues[this.selectedAttribute].length);
-    } else {
-      this.draftCounts = this.binningService.emptyBallCounts();
-    }
-    this.draftsByCondition[this.currentCondition] = this.draftCounts.slice();
-  }
-
-  setUniform() {
-    const n = this.draftCounts.length;
-    if (n === 0) return;
+  private _uniformFill(n: number): number[] {
     const base = Math.floor(this.binningService.ballCount / n);
     const remainder = this.binningService.ballCount % n;
-    this.draftCounts = this.draftCounts.map((_, i) => base + (i < remainder ? 1 : 0));
-    this.draftsByCondition[this.currentCondition] = this.draftCounts.slice();
+    return Array.from({ length: n }, (_, i) => base + (i < remainder ? 1 : 0));
+  }
+
+  setUniformA() {
+    if (this.draftCountsA.length === 0) return;
+    this.draftCountsA = this._uniformFill(this.draftCountsA.length);
+  }
+  setUniformB() {
+    if (this.draftCountsB.length === 0) return;
+    this.draftCountsB = this._uniformFill(this.draftCountsB.length);
+  }
+
+  get canSave(): boolean {
+    return this.remainingA === 0 && this.remainingB === 0;
   }
 
   save() {
-    if (!this.selectedAttribute) return;
-    let belief: PriorBelief;
-    if (this.isCategorical(this.selectedAttribute)) {
-      const cats = this.categoricalValues[this.selectedAttribute];
-      belief = {
-        datasetId: this.datasetId,
-        attribute: this.selectedAttribute,
-        condition: this.currentCondition,
-        binEdges: cats.map((_, i) => i).concat(cats.length),
-        counts: this.draftCounts,
-        ballCount: this.binningService.ballCount,
-        columnHash: '',
-        createdAt: Date.now(),
-        categories: cats
-      };
-    } else {
+    if (!this.selectedAttribute || !this.canSave) return;
+    const buildBelief = (condition: PriorCondition, counts: number[]): PriorBelief => {
+      if (this.isCategorical(this.selectedAttribute)) {
+        const cats = this.categoricalValues[this.selectedAttribute];
+        return {
+          datasetId: this.datasetId,
+          attribute: this.selectedAttribute,
+          condition,
+          binEdges: cats.map((_, i) => i).concat(cats.length),
+          counts,
+          ballCount: this.binningService.ballCount,
+          columnHash: '',
+          createdAt: Date.now(),
+          categories: cats
+        };
+      }
       const bins = this.binningService.computeBins(this.currentValues);
-      belief = {
+      return {
         datasetId: this.datasetId,
         attribute: this.selectedAttribute,
-        condition: this.currentCondition,
+        condition,
         binEdges: bins.map(b => b.lo).concat(bins[bins.length - 1].hi),
-        counts: this.draftCounts,
+        counts,
         ballCount: this.binningService.ballCount,
         columnHash: '',
         createdAt: Date.now()
       };
-    }
-    this.pendingBelief = belief;
+    };
+    this.pendingBeliefA = buildBelief('diagnosed', this.draftCountsA);
+    this.pendingBeliefB = buildBelief('not_diagnosed', this.draftCountsB);
     this.confidenceStep = true;
-    const saved = this.store.getBelief(this.datasetId, this.selectedAttribute, this.currentCondition);
-    this.confidenceRating = saved?.confidence ?? 50;
+    const savedA = this.store.getBelief(this.datasetId, this.selectedAttribute, 'diagnosed');
+    const savedB = this.store.getBelief(this.datasetId, this.selectedAttribute, 'not_diagnosed');
+    this.confidenceRating = savedA?.confidence ?? savedB?.confidence ?? 50;
   }
 
   submitConfidence() {
-    if (!this.pendingBelief) return;
-    const belief = { ...this.pendingBelief, confidence: Number(this.confidenceRating) };
-    this.store.setBelief(belief);
+    if (!this.pendingBeliefA || !this.pendingBeliefB) return;
+    const confidence = Number(this.confidenceRating);
+    const beliefA = { ...this.pendingBeliefA, confidence };
+    const beliefB = { ...this.pendingBeliefB, confidence };
+    this.store.setBelief(beliefA);
+    this.store.setBelief(beliefB);
     this.chatService.sendPriors({
       participantId: this.global.participantId,
       participantIdSource: this.global.participantIdSource,
       appMode: this.global.appMode,
       appType: this.global.appType,
       appLevel: this.global.appLevel,
-      priors: belief,
+      priors: beliefA,
     });
-    this.pendingBelief = null;
+    this.chatService.sendPriors({
+      participantId: this.global.participantId,
+      participantIdSource: this.global.participantIdSource,
+      appMode: this.global.appMode,
+      appType: this.global.appType,
+      appLevel: this.global.appLevel,
+      priors: beliefB,
+    });
+    this.pendingBeliefA = null;
+    this.pendingBeliefB = null;
     this.confidenceStep = false;
     this.confidenceRating = 50;
-
-    if (this.currentCondition === 'diagnosed') {
-      this.currentCondition = 'not_diagnosed';
-      this.confidenceRating = this.store.getBelief(this.datasetId, this.selectedAttribute, 'not_diagnosed')?.confidence ?? 50;
-      this._loadDraft();
-    } else {
-      this._nextAttribute();
-    }
+    this._nextAttribute();
   }
 
   private _nextAttribute() {
     if (this.currentAttrIndex < this.allAttributes.length - 1) {
       this.currentAttrIndex++;
-      this.currentCondition = 'diagnosed';
       this.confidenceStep = false;
-      this.draftsByCondition = {};
       this.confidenceRating = 50;
-      this.draftCounts = [];
       this._loadDraft();
     } else {
       this.done = true;
@@ -227,31 +248,21 @@ export class ElicitationModalComponent implements OnInit {
   }
 
   goBack() {
-    this.draftsByCondition[this.currentCondition] = this.draftCounts.slice();
-
     if (this.confidenceStep) {
+      // The in-progress token placement is still in draftCountsA/B — just
+      // return to it, nothing to reload.
       this.confidenceStep = false;
-      this.pendingBelief = null;
-      this._loadDraft();
-    } else if (this.currentCondition === 'not_diagnosed') {
-      this.currentCondition = 'diagnosed';
-      this.confidenceStep = true;
-      const existing = this.store.getBelief(this.datasetId, this.selectedAttribute, 'diagnosed');
-      if (existing) {
-        this.pendingBelief = { ...existing };
-        this.confidenceRating = existing.confidence ?? 50;
-      }
+      this.pendingBeliefA = null;
+      this.pendingBeliefB = null;
     } else if (this.currentAttrIndex > 0) {
-      // go back to previous attribute's not_diagnosed confidence step
       this.currentAttrIndex--;
-      this.draftsByCondition = {};
-      this.currentCondition = 'not_diagnosed';
+      this._loadDraft();
       this.confidenceStep = true;
-      const existing = this.store.getBelief(this.datasetId, this.selectedAttribute, 'not_diagnosed');
-      if (existing) {
-        this.pendingBelief = { ...existing };
-        this.confidenceRating = existing.confidence ?? 50;
-      }
+      const existingA = this.store.getBelief(this.datasetId, this.selectedAttribute, 'diagnosed');
+      const existingB = this.store.getBelief(this.datasetId, this.selectedAttribute, 'not_diagnosed');
+      this.pendingBeliefA = existingA ? { ...existingA } : null;
+      this.pendingBeliefB = existingB ? { ...existingB } : null;
+      this.confidenceRating = existingA?.confidence ?? existingB?.confidence ?? 50;
     }
     // if isFirstStep, back button is hidden — nothing to do
   }

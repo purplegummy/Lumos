@@ -6,6 +6,7 @@
       [count]="counts[i]"
       [maxBalls]="binningService.ballCount"
       [remaining]="getRemaining()"
+      [seriesColor]="seriesColor"
       (increment)="increment(i)"
       (decrement)="decrement(i)"
       (setCount)="setCount(i, $event)"

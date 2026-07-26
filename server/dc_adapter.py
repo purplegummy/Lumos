@@ -156,6 +156,27 @@ def build_beliefs_from_priors(priors):
     return beliefs, report
 
 
+def flatten_priors_for_bias(priors, condition="diagnosed"):
+    """{'attr::cond': belief} -> {attr: belief}, for consumers that expect a
+    single prior per attribute (bias.py's js_divergence) rather than
+    dc_metric's countsByGroup-per-attribute contract.
+
+    Picks `condition`'s belief per attribute (falling back to whichever
+    condition is present, if only one has been committed so far -- bias
+    metrics are computed incrementally as priors come in, before both
+    conditions of every attribute are necessarily complete).
+    """
+    grouped = group_priors_by_attribute(priors)
+    flat = {}
+    for attr, by_cond in grouped.items():
+        if attr == LABEL_ATTR:
+            continue
+        belief = by_cond.get(condition) or next(iter(by_cond.values()), None)
+        if belief is not None:
+            flat[attr] = belief
+    return flat
+
+
 def is_ready(priors, expected=EXPECTED_VARIABLE_COUNT):
     """True when at least `expected` variables have BOTH conditions elicited.
 

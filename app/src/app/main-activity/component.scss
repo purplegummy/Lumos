@@ -467,6 +467,18 @@
   gap: 8px;
 }
 
+.instructions-modal-panel {
+  max-width: 520px;
+}
+
+.instructions-modal-panel .confirm-modal-body p {
+  margin: 0 0 12px;
+}
+
+.instructions-modal-panel .confirm-modal-body p:last-child {
+  margin-bottom: 0;
+}
+
 .subject-remove {
   background: none;
   border: none;

@@ -1,11 +1,11 @@
 <div class="bin-column">
-
-  <!-- each row is one ball slot; drag across to set count quickly -->
   <div class="grid">
     <div
       *ngFor="let row of rows"
       class="cell"
       [class.filled]="isFilled(row)"
+      [class.cell-a]="isFilled(row) && seriesColor === 'a'"
+      [class.cell-b]="isFilled(row) && seriesColor === 'b'"
       [class.clickable]="isClickable(row)"
       [class.unreachable]="!isClickable(row)"
       (mousedown)="onMouseDown(row)"
@@ -15,10 +15,9 @@
 
   <div class="bin-floor"></div>
 
-  <!-- hold to repeat; count rolls up/down to show direction -->
   <div class="controls">
     <button (mousedown)="startHold('decrement')" (mouseup)="stopHold()" (mouseleave)="stopHold()" [disabled]="count === 0" [class.is-held]="isHeld === 'decrement'">−</button>
-    <span class="count">{{ count }}</span>
+    <span class="count" [class.count-a]="seriesColor === 'a'" [class.count-b]="seriesColor === 'b'">{{ count }}</span>
     <button (mousedown)="startHold('increment')" (mouseup)="stopHold()" (mouseleave)="stopHold()" [disabled]="remaining === 0" [class.is-held]="isHeld === 'increment'">+</button>
   </div>
 
