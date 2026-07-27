@@ -91,7 +91,9 @@ async def on_session_end_page_level_logs(sid, payload):
     pid = payload["participantId"]
     if pid in CLIENTS and "data" in payload:
         dirname = f"output/{CLIENTS[pid]['app_type']}/{pid}"
-        Path(dirname).mkdir(exist_ok=True) 
+        # parents=True: a condition whose output/<app_type>/ dir isn't committed
+        # would otherwise raise here and skip the writes below.
+        Path(dirname).mkdir(parents=True, exist_ok=True)
         filename = f"output/{CLIENTS[pid]['app_type']}/{pid}/session_end_page_logs_{pid}_{bias_util.get_current_time()}.tsv"
         df_to_save = pd.DataFrame(payload["data"])
 
@@ -107,7 +109,7 @@ async def on_save_logs(sid, data):
         pid = CLIENT_SOCKET_ID_PARTICIPANT_MAPPING[sid]
         if pid in CLIENTS:
             dirname = f"output/{CLIENTS[pid]['app_type']}/{pid}"
-            Path(dirname).mkdir(exist_ok=True)
+            Path(dirname).mkdir(parents=True, exist_ok=True)
             ts = bias_util.get_current_time()
 
             filename = f"{dirname}/logs_{pid}_{ts}.tsv"
@@ -345,7 +347,8 @@ async def on_interaction(sid, data):
                       f"n_dwelled={_dwell.get('n_dwelled')})", flush=True)
                 SIO.start_background_task(
                     llm_intervention.generate_and_emit,
-                    SIO, sid, pid, client_record, _dwell, teens)
+                    SIO, CLIENT_PARTICIPANT_ID_SOCKET_ID_MAPPING, pid,
+                    client_record, _dwell, teens)
             else:
                 # Log only when the blocking gate CHANGES, so exploring shows
                 # why nothing fired without a line on every interaction.

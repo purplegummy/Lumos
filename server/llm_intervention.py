@@ -54,6 +54,11 @@ OBSERVED_RANGES = {                       # numeric variables, real observed [mi
 CATEGORY_LEVELS = {                       # the one categorical belief variable
     "difficulty_making_friends": ["No difficulty", "A little difficulty", "A lot of difficulty"],
 }
+# The study elicits SIX belief variables (dc_adapter.EXPECTED_VARIABLE_COUNT), so
+# dwell_bias_v carries all six -- including child_age_years and child_sex, which
+# have no grounded filter range here. Ranking must ignore them: an intervention is
+# only ever about a variable we can hand the participant a real filter for.
+SUPPORTED_VARIABLES = set(OBSERVED_RANGES) | set(CATEGORY_LEVELS)
 RANGE_PHRASES = {                         # (variable, direction) -> natural-language phrase
     ("screen_time_weekday", "higher"): "longer screen time",
     ("screen_time_weekday", "lower"):  "shorter screen time",
@@ -130,7 +135,8 @@ def _variable_for_filter_ranges(candidates, filter_ranges):
 def top_variable_contributors(dwell_bias_v, attended_direction, n=3):
     """Top-n variables by |DwellBias_v|, each paired with its attention direction,
     in the {"variable", "range"} shape the Awareness input uses."""
-    ranked = sorted(dwell_bias_v.items(), key=lambda kv: abs(kv[1]), reverse=True)[:n]
+    supported = [kv for kv in dwell_bias_v.items() if kv[0] in SUPPORTED_VARIABLES]
+    ranked = sorted(supported, key=lambda kv: abs(kv[1]), reverse=True)[:n]
     contributors = []
     for var, _score in ranked:
         direction = attended_direction.get(var)
@@ -373,13 +379,17 @@ def generate(llm_input, model=DEFAULT_MODEL, effort=DEFAULT_EFFORT):
     return result
 
 
-async def generate_and_emit(sio, sid, pid, client_record, dwell_metrics, teens):
+async def generate_and_emit(sio, sid_by_pid, pid, client_record, dwell_metrics, teens):
     """Background task: assemble -> generate -> emit the intervention.
 
     Fired via SIO.start_background_task from on_interaction AFTER the interaction
     response has already gone out, so the ~4-6s Claude call is off the critical
     path. Wrapped end-to-end in try/except: a broken LLM call must never break an
     interaction response or lose data.
+
+    Takes the pid -> sid map rather than a sid: a reconnect during those seconds
+    gives the participant a NEW sid, and emitting to the old room silently
+    delivers nothing.
 
     On success emits an "llm_intervention" event to the participant's room,
     appends a compact record to client_record["llm_interventions"] (fed back as
@@ -462,7 +472,7 @@ async def generate_and_emit(sio, sid, pid, client_record, dwell_metrics, teens):
         print(f"[LLM] {pid}: output themes={_titles} "
               f"({elapsed:.1f}s, tokens {_tokens})", flush=True)
 
-        await sio.emit("llm_intervention", result, room=sid)
+        await sio.emit("llm_intervention", result, room=sid_by_pid.get(pid))
 
         # Persist the generated text so it is recoverable for analysis. This is
         # research data, not just UI. Reuse the existing per-participant logs path.
