@@ -56,6 +56,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   plotHeight: number;
   plotGroup: any;
   showPriorModal = false;
+  llmIntervention: any = null;
   // TEMP DEBUG: latest metrics from output_data, surfaced by the Logs panel.
   latestMetrics: any = null;
   showLogsPanel: boolean = false;
@@ -66,6 +67,12 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   // a handful so the walkthrough stays quick.
   get requiredSelections(): number {
     return this.global.isTutorial ? 3 : 10;
+  }
+
+  // appType, not appLayout: ?type=LLM sets appType to "LLM" but keeps the layout
+  // on CONTROL, so an appLayout check here would never be true.
+  get showLlmPanel(): boolean {
+    return this.global.appType === "LLM" && this.llmIntervention != null;
   }
 
   // Phase 1 (prior belief elicitation) must fully finish before phase 2 (the
@@ -549,6 +556,10 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
           context.updateAwarenessPanel();
           context.updateVis();
         }
+      });
+
+      context.chatService.getLlmIntervention().subscribe((obj) => {
+        context.llmIntervention = obj;
       });
 
       context.showPriorModal = true;
@@ -1302,6 +1313,25 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     };
     this.chatService.sendInteractionResponse(message);
     /* Prepare and Send New Message - End */
+  }
+
+  /**
+   * Applies a recommended theme's filter, as if the participant had set it by hand.
+   */
+  applyThemeFilter(theme): void {
+    let attribute = theme["variable"];
+    let attrConfig = this.appConfig[this.global.appMode]["attributes"][attribute];
+    if (!attrConfig) {
+      console.warn("[LLM] no filter to apply for theme:", theme["title"]);
+      return;
+    }
+    // A fresh array, not an in-place edit: ngModel only writes into the slider /
+    // multiselect widget when the bound reference changes.
+    attrConfig["filterModel"] = theme["filter_ranges"].slice();
+    // Filter rows are collapsed by default under CONTROL; open the one just
+    // applied so the participant can see and adjust it.
+    this.expandedFilters.add(attribute);
+    this.onChangeFilter(attribute, "llmTheme");
   }
 
   /**
