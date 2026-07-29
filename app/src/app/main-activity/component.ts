@@ -1316,18 +1316,28 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   }
 
   /**
-   * Applies a recommended theme's filter, as if the participant had set it by hand.
+   * Applies a recommended theme's filters, as if the participant had set them by hand.
    */
   applyThemeFilter(theme): void {
-    let attribute = theme["variable"];
+    // A theme is a conjunction: a range on one variable AND a diagnosis status.
+    // Applying only the range leaves in the diagnosis group the participant was
+    // already over-attending to, which is the opposite of the theme's contrast.
+    this.applyThemeRange(theme["variable"], theme["filter_ranges"], theme["title"]);
+    let diagnosis = theme["diagnosis_filter"];
+    if (diagnosis) {
+      this.applyThemeRange(diagnosis["variable"], diagnosis["filter_ranges"], theme["title"]);
+    }
+  }
+
+  applyThemeRange(attribute, ranges, title): void {
     let attrConfig = this.appConfig[this.global.appMode]["attributes"][attribute];
     if (!attrConfig) {
-      console.warn("[LLM] no filter to apply for theme:", theme["title"]);
+      console.warn("[LLM] no filter to apply for theme:", title);
       return;
     }
     // A fresh array, not an in-place edit: ngModel only writes into the slider /
     // multiselect widget when the bound reference changes.
-    attrConfig["filterModel"] = theme["filter_ranges"].slice();
+    attrConfig["filterModel"] = ranges.slice();
     // Filter rows are collapsed by default under CONTROL; open the one just
     // applied so the participant can see and adjust it.
     this.expandedFilters.add(attribute);

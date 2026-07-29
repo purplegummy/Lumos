@@ -132,6 +132,26 @@ def _variable_for_filter_ranges(candidates, filter_ranges):
     return None
 
 
+def _diagnosis_filter_for_filter_ranges(candidates, filter_ranges):
+    """The diagnosis half of the matching candidate, as a ready-to-apply
+    {variable, filter_ranges} pair, or None.
+
+    Every candidate theme is a CONJUNCTION -- a range on the top variable AND a
+    diagnosis status -- but the reviewed OUTPUT_SCHEMA carries only filter_ranges.
+    Emitting the range alone leaves the participant looking at both diagnosis
+    groups, including the one they were already over-attending to, which is the
+    opposite of the contrast the theme names.
+    """
+    for candidate in candidates:
+        if candidate.get("filter_ranges") == filter_ranges:
+            status = candidate.get("predicate", {}).get("diagnosis")
+            if status is None:
+                return None
+            # predicate stores the label column's own value lowercased.
+            return {"variable": dc_metric.LABEL_ATTR, "filter_ranges": [status.capitalize()]}
+    return None
+
+
 def top_variable_contributors(dwell_bias_v, attended_direction, n=3):
     """Top-n variables by |DwellBias_v|, each paired with its attention direction,
     in the {"variable", "range"} shape the Awareness input uses."""
@@ -436,12 +456,13 @@ async def generate_and_emit(sio, sid_by_pid, pid, client_record, dwell_metrics, 
             print(f"[LLM] {pid}: no output ({elapsed:.1f}s)", flush=True)
             return
 
-        # Attach the variable each recommended theme's filter applies to. The
+        # Attach both halves of each recommended theme's filter: the variable its
+        # range applies to, and the diagnosis status it contrasts against. The
         # reviewed OUTPUT_SCHEMA deliberately carries only title/description/
-        # filter_ranges, so the variable would otherwise be lost. We recover it
-        # by matching the theme's filter_ranges back to the candidate that
-        # produced it -- by VALUE, never by position (see below). Enriches the
-        # emitted event only; schema/prompt untouched.
+        # filter_ranges, so both would otherwise be lost. We recover them by
+        # matching the theme's filter_ranges back to the candidate that produced
+        # it -- by VALUE, never by position (see below). Enriches the emitted
+        # event only; schema/prompt untouched.
         candidates = llm_input.get("candidate_themes", [])
         for theme in result.get("recommended_themes", []):
             variable = _variable_for_filter_ranges(candidates, theme.get("filter_ranges"))
@@ -456,6 +477,8 @@ async def generate_and_emit(sio, sid_by_pid, pid, client_record, dwell_metrics, 
                       f"dropping its filter action.", flush=True)
                 continue
             theme["variable"] = variable
+            theme["diagnosis_filter"] = _diagnosis_filter_for_filter_ranges(
+                candidates, theme.get("filter_ranges"))
 
         # Feed back next time so repeat interventions vary their wording.
         client_record.setdefault("llm_interventions", []).append({
