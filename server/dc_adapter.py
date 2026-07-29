@@ -302,3 +302,32 @@ def compute_dwell_metrics(detailed_map, bias_logs):
         "dwell_bias_v": dc_metric.dwell_bias_v(detailed_map, dwell),
         "n_dwelled": len(dwell),
     }
+
+
+def compute_selection_percentile(dc_map, selected_ids, n_trials=1000, rng=None):
+    """Thin wrapper: SelectionBias percentile from a cached dc_map + final selection.
+
+    Mirrors compute_phase_metrics / compute_dwell_metrics -- reads the CACHED
+    scalar dc_map, never recomputes DC. Meant to run ONCE at task-submission time
+    over the participant's final selected ids. Returns a plain dict for
+    logging/embedding; selection_bias_percentile is None when nothing present in
+    dc_map was selected.
+    """
+    return {
+        "selection_bias_percentile": dc_metric.selection_bias_percentile(
+            dc_map, selected_ids, n_trials, rng),
+    }
+
+
+def compute_dwell_percentile(detailed_map, dwell, n_trials=1000, rng=None):
+    """Thin wrapper: DwellBias percentile from a cached detailed dc_map + dwell.
+
+    Sibling of compute_dwell_metrics. Present for parity and for the deferred
+    GATED live integration (see dc_metric.dwell_percentile_ready); it is NOT wired
+    into on_interaction yet. dwell_bias_percentile is None when nothing was
+    dwelled.
+    """
+    return {
+        "dwell_bias_percentile": dc_metric.dwell_bias_percentile(
+            detailed_map, dwell, n_trials, rng),
+    }

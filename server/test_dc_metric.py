@@ -512,6 +512,102 @@ def main():
     check("empty dwell -> every DwellBias_v == 0.0",
           all(s == 0.0 for s in dc.dwell_bias_v(detailed, {}).values()))
 
+    # ===================================================================== #
+    # PERCENTILE NULL-DISTRIBUTION WRAPPERS
+    #   sample_null_dwell_bias / sample_null_selection_bias and their
+    #   *_percentile drivers, plus the standalone dwell_percentile_ready gate.
+    # ===================================================================== #
+    print("\nPERCENTILE WRAPPERS:")
+
+    def raises_value_error(fn):
+        try:
+            fn()
+            return False
+        except ValueError:
+            return True
+
+    total = 50000.0
+
+    # --- structural: exact length + determinism under a seeded rng --------- #
+    d_arr1 = dc.sample_null_dwell_bias(detailed, 12, total, n_trials=1000,
+                                       rng=np.random.default_rng(7))
+    d_arr2 = dc.sample_null_dwell_bias(detailed, 12, total, n_trials=1000,
+                                       rng=np.random.default_rng(7))
+    check("sample_null_dwell_bias returns exactly n_trials values",
+          d_arr1.shape == (1000,))
+    check("sample_null_dwell_bias deterministic under equal seeds",
+          np.array_equal(d_arr1, d_arr2))
+
+    s_arr1 = dc.sample_null_selection_bias(dcs, 8, n_trials=1000,
+                                           rng=np.random.default_rng(7))
+    s_arr2 = dc.sample_null_selection_bias(dcs, 8, n_trials=1000,
+                                           rng=np.random.default_rng(7))
+    check("sample_null_selection_bias returns exactly n_trials values",
+          s_arr1.shape == (1000,))
+    check("sample_null_selection_bias deterministic under equal seeds",
+          np.array_equal(s_arr1, s_arr2))
+
+    # --- percentile output is always a probability in [0, 1] --------------- #
+    some_dwell = {t: float(random.randint(100, 3000)) for t in sorted_ids[::7]}
+    p_dwell = dc.dwell_bias_percentile(detailed, some_dwell, n_trials=1000,
+                                       rng=np.random.default_rng(11))
+    p_sel = dc.selection_bias_percentile(dcs, representative_ids, n_trials=1000,
+                                         rng=np.random.default_rng(11))
+    check("dwell_bias_percentile in [0, 1]", 0.0 <= p_dwell <= 1.0)
+    check("selection_bias_percentile in [0, 1]", 0.0 <= p_sel <= 1.0)
+
+    # --- k == 0 -> None (legitimate "not enough data", never raises) ------- #
+    check("dwell_bias_percentile returns None on empty dwell",
+          dc.dwell_bias_percentile(detailed, {}, n_trials=100,
+                                   rng=np.random.default_rng(1)) is None)
+    check("selection_bias_percentile returns None on empty selection",
+          dc.selection_bias_percentile(dcs, [], n_trials=100,
+                                       rng=np.random.default_rng(1)) is None)
+
+    # --- k > population -> ValueError, no silent clamp --------------------- #
+    check("sample_null_dwell_bias raises ValueError when k > population",
+          raises_value_error(lambda: dc.sample_null_dwell_bias(
+              detailed, len(detailed) + 1, total, n_trials=10)))
+    check("sample_null_selection_bias raises ValueError when k > population",
+          raises_value_error(lambda: dc.sample_null_selection_bias(
+              dcs, len(dcs) + 1, n_trials=10)))
+    check("sample_null_dwell_bias raises ValueError when k <= 0",
+          raises_value_error(lambda: dc.sample_null_dwell_bias(
+              detailed, 0, total, n_trials=10)))
+
+    # --- sanity: extreme confirming attention lands HIGH in the null ------- #
+    # All dwell on the single most belief-confirming teen (max DC) => the real
+    # value is the population max, so nearly the whole null sits below it.
+    most_confirming = sorted_ids[-1]
+    p_extreme = dc.dwell_bias_percentile(detailed, {most_confirming: 5000.0},
+                                         n_trials=2000, rng=np.random.default_rng(1))
+    check("extreme confirming dwell -> dwell_bias_percentile > 0.9",
+          p_extreme is not None and p_extreme > 0.9)
+
+    # A representative spread of equal dwell => real ~ baseline => mid of null.
+    mid_dwell = {t: 1000.0 for t in sorted_ids[::2]}
+    p_mid = dc.dwell_bias_percentile(detailed, mid_dwell,
+                                     n_trials=2000, rng=np.random.default_rng(2))
+    check("representative dwell -> dwell_bias_percentile near middle (0.2..0.8)",
+          p_mid is not None and 0.2 < p_mid < 0.8)
+
+    # Selecting the most-confirming quartile => high selection percentile.
+    p_sel_extreme = dc.selection_bias_percentile(
+        dcs, consistent_ids, n_trials=2000, rng=np.random.default_rng(3))
+    check("selecting most-confirming quartile -> selection_bias_percentile > 0.9",
+          p_sel_extreme is not None and p_sel_extreme > 0.9)
+
+    # --- dwell_percentile_ready gate (1c), standalone ---------------------- #
+    THREE_MIN = 3 * 60 * 1000
+    gate_logs = [mouseout_item_log(t, 400) for t in sorted_ids[:12]]   # 12 unique
+    few_logs = [mouseout_item_log(t, 400) for t in sorted_ids[:5]]     # 5 unique
+    check("dwell_percentile_ready: >=10 unique AND >=3min -> True",
+          dc.dwell_percentile_ready(gate_logs, 0, THREE_MIN) is True)
+    check("dwell_percentile_ready: enough unique but <3min -> False",
+          dc.dwell_percentile_ready(gate_logs, 0, THREE_MIN - 1) is False)
+    check("dwell_percentile_ready: <10 unique -> False",
+          dc.dwell_percentile_ready(few_logs, 0, THREE_MIN) is False)
+
     print("\n" + "=" * 72)
     print(f"{'ALL CHECKS PASSED' if failures == 0 else str(failures) + ' CHECK(S) FAILED'}")
     print("=" * 72)

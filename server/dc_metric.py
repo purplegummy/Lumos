@@ -510,3 +510,163 @@ def dwell_bias_v(detailed_map, dwell, weighted=False):
     if denominator == 0.0:
         return {v: 0.0 for v in variables}
     return {v: numerator[v] / denominator - baseline[v] for v in variables}
+
+
+# --------------------------------------------------------------------------- #
+# 8. Percentile null-distribution wrappers (Shiyao's methodology)
+#
+# These wrap the already-validated dwell_bias / selection_bias by scoring the
+# participant's REAL value against a null distribution of synthetic values drawn
+# under "no attentional / selection preference." The existing metric functions
+# are the ground truth and are called UNMODIFIED for the real value; only the
+# null sampling lives here. Each sampler precomputes its constant all-teen
+# baseline ONCE (the real functions recompute it every call -- the one perf fix
+# flagged in recon) so n_trials iterations never repeat it.
+#
+# rng: pass a numpy Generator (np.random.default_rng(seed)) for reproducible
+# tests; when None, the legacy np.random global state is used. Both objects
+# expose .choice and .dirichlet with compatible signatures, so the source is
+# selected once and used the same way.
+# --------------------------------------------------------------------------- #
+def sample_null_dwell_bias(detailed_map, k, total_dwell_ms, n_trials=1000, rng=None):
+    """Null distribution for DwellBias: n_trials synthetic dwell-weighted scores.
+
+    Each trial samples k DISTINCT teens (without replacement WITHIN the trial; a
+    real participant can't dwell on the same teen as two different "unique"
+    interactions -- trials are independent and MAY reuse teens across trials),
+    splits total_dwell_ms among them via a symmetric Dirichlet(1..1), and scores
+    with the SAME dwell_bias formula: dwell-weighted mean DC minus the all-teen
+    baseline. baseline is the mean DC over ALL teens -- constant across trials --
+    so it is computed ONCE up front.
+
+    Args:
+        detailed_map: cached dc_map_detailed ({teen: {"dc", "consistency",
+            "weights"}}); only "dc" is read here.
+        k: number of distinct teens per trial (1..len(detailed_map)).
+        total_dwell_ms: total dwell budget split across the k teens per trial.
+        n_trials: number of null draws.
+        rng: numpy Generator for reproducibility, or None for np.random global.
+
+    Returns:
+        np.ndarray of shape (n_trials,).
+
+    Raises:
+        ValueError if k <= 0 or k > len(detailed_map) (no silent clamping).
+    """
+    n = len(detailed_map)
+    if k <= 0 or k > n:
+        raise ValueError(
+            f"[sample_null_dwell_bias] k={k} out of range 1..{n}")
+    source = rng if rng is not None else np.random
+    ids = list(detailed_map.keys())
+    dc_by_id = {tid: detailed_map[tid]["dc"] for tid in ids}
+    baseline = sum(dc_by_id.values()) / n            # mean DC over ALL teens, ONCE
+    out = np.empty(n_trials, dtype=float)
+    for t in range(n_trials):
+        chosen = source.choice(ids, size=k, replace=False)
+        props = source.dirichlet(np.ones(k))         # k proportions summing to 1
+        dwell_syn = props * total_dwell_ms           # synthetic {teen: dwell_ms}
+        chosen_dc = np.array([dc_by_id[c] for c in chosen])
+        # dwell-weighted mean DC, i.e. sum(dwell_i*DC_i)/sum(dwell_i). total_dwell_ms
+        # cancels in num/den, but keep it so this is the dwell_bias formula verbatim.
+        weighted_mean = float(np.dot(dwell_syn, chosen_dc) / dwell_syn.sum())
+        out[t] = weighted_mean - baseline
+    return out
+
+
+def dwell_bias_percentile(detailed_map, dwell, n_trials=1000, rng=None):
+    """Percentile of the REAL DwellBias against its null distribution.
+
+        real = dwell_bias(detailed_map, dwell)   # existing fn, UNMODIFIED = truth
+        null = sample_null_dwell_bias(...), with k = len(dwell),
+               total_dwell_ms = sum(dwell.values())
+        return fraction of null draws strictly BELOW real   -> a value in [0, 1]
+
+    A high percentile => the participant concentrated attention on belief-
+    confirming (high-DC) teens more than chance would.
+
+    Returns None when k == 0 (no dwell yet): a legitimate "not enough data" case,
+    not an error, so it never raises or divides by zero.
+    """
+    real_value = dwell_bias(detailed_map, dwell)     # existing, unmodified
+    k = len(dwell)
+    if k == 0:
+        return None
+    total_dwell_ms = sum(dwell.values())
+    null = sample_null_dwell_bias(detailed_map, k, total_dwell_ms, n_trials, rng)
+    return float((null < real_value).mean())
+
+
+def dwell_percentile_ready(bias_logs, connected_at_ms, now_ms):
+    """Gate for when the DwellBias percentile is worth computing (pure, no side effects).
+
+    True iff BOTH hold:
+      * >= 10 unique interacted teens, and
+      * >= 3 minutes elapsed since connected_at_ms.
+
+    Reuses dc_adapter.interacted_ids (the SAME dedup the live metrics use) rather
+    than reimplementing id-dedup. dc_adapter imports dc_metric, so importing it at
+    module top here would create a cycle; the call-time local import avoids that.
+
+    STANDALONE for now: intentionally NOT wired into on_interaction / should_trigger
+    (that integration is deferred pending Sung's should_trigger stub). Timestamps
+    are epoch milliseconds (bias_util.get_current_time()).
+    """
+    import dc_adapter  # local import: breaks the dc_metric<->dc_adapter cycle
+    enough_interactions = len(dc_adapter.interacted_ids(bias_logs)) >= 10
+    enough_elapsed = (now_ms - connected_at_ms) >= 3 * 60 * 1000
+    return enough_interactions and enough_elapsed
+
+
+def sample_null_selection_bias(dc_map, k, n_trials=1000, rng=None):
+    """Null distribution for SelectionBias: n_trials synthetic mean-DC differences.
+
+    Each trial samples k DISTINCT teens (without replacement within the trial) and
+    scores mean(DC over them) - mean(DC over ALL teens), reusing the existing
+    _mean_over / _mean_all helpers. The all-teen baseline is constant across
+    trials, so _mean_all is computed ONCE up front.
+
+    Args:
+        dc_map: cached scalar dc_map ({teen: DC_float}).
+        k: number of distinct teens per trial (1..len(dc_map)).
+        n_trials: number of null draws.
+        rng: numpy Generator for reproducibility, or None for np.random global.
+
+    Returns:
+        np.ndarray of shape (n_trials,).
+
+    Raises:
+        ValueError if k <= 0 or k > len(dc_map) (no silent clamping).
+    """
+    n = len(dc_map)
+    if k <= 0 or k > n:
+        raise ValueError(
+            f"[sample_null_selection_bias] k={k} out of range 1..{n}")
+    source = rng if rng is not None else np.random
+    ids = list(dc_map.keys())
+    baseline = _mean_all(dc_map)                     # mean DC over ALL teens, ONCE
+    out = np.empty(n_trials, dtype=float)
+    for t in range(n_trials):
+        chosen = source.choice(ids, size=k, replace=False)
+        sub = _mean_over(dc_map, chosen)             # mean DC over the k sampled
+        out[t] = sub - baseline
+    return out
+
+
+def selection_bias_percentile(dc_map, selected_ids, n_trials=1000, rng=None):
+    """Percentile of the REAL SelectionBias against its null distribution.
+
+        real = selection_bias(dc_map, selected_ids)   # existing fn, UNMODIFIED
+        k    = number of UNIQUE selected ids actually present in dc_map
+        null = sample_null_selection_bias(dc_map, k, ...)
+        return fraction of null draws strictly BELOW real   -> a value in [0, 1]
+
+    Returns None when k == 0 (nothing selected that is in dc_map): "not enough
+    data," not an error.
+    """
+    real_value = selection_bias(dc_map, selected_ids)   # existing, unmodified
+    k = len({i for i in selected_ids if i in dc_map})
+    if k == 0:
+        return None
+    null = sample_null_selection_bias(dc_map, k, n_trials, rng)
+    return float((null < real_value).mean())

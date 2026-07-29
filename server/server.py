@@ -231,6 +231,24 @@ async def on_task_submitted(sid, data):
         firebase_logger.save_task_submission(pid, code, subjects)
         print(f"Task submitted for {pid}: {code}")
 
+        # --- SelectionBias percentile: computed ONCE here at submit time from the
+        # CACHED dc_map + the FINAL submitted selection (no DC recompute). Shiyao
+        # confirmed selection_bias has no trigger policy -- it's a one-shot at
+        # submission. selection_bias_percentile raises fail-loud inside dc_metric,
+        # so guard at this handler boundary (same convention as on_interaction's
+        # dwell_bias guard) -- a stray id must never break submission. Absent
+        # dc_map (elicitation never completed) -> skip. ---
+        client = CLIENTS.get(pid)
+        dc_map_cached = client.get("dc_map") if client else None
+        if dc_map_cached:
+            try:
+                pct = dc_adapter.compute_selection_percentile(dc_map_cached, subjects)
+                print(f"[SEL%] pid={pid} | "
+                      f"selection_bias_percentile={pct['selection_bias_percentile']} "
+                      f"(n_selected={len(subjects)})", flush=True)
+            except Exception as e:
+                print(f"[SEL%] compute failed: {e}", flush=True)
+
 
 @SIO.event
 async def on_interaction(sid, data):
