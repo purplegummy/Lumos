@@ -506,8 +506,10 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
             context.utilsService.sum,
             0
           ) as number;
-          if (["dotplot", "barchart", "linechart"].indexOf(context.currentPlotInstance) !== -1) {
+          if (["barchart", "linechart"].indexOf(context.currentPlotInstance) !== -1) {
             // update point color for hovered Objects (only if visible!)
+            // (Dot plot dropped from this list: it now uses per-teen item hover
+            // + the single-item Details panel, not the group hoveredObjects model.)
             let hoveredPointsList = Object.values(dataset["hoveredObjects"]["points"]);
             hoveredPointsList.forEach((dataPoint) =>
               context.utilsService.colorDataPoint(context, dataPoint, hoveredPointsList)

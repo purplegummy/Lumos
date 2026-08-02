@@ -558,8 +558,8 @@
 
         <!-- ROW: Selected Object(s) -->
         <as-split-area #selected_objects_container [size]="32" style="overflow: hidden">
-          <!-- Default Hover Table (for Scatter*/Strip Plots) -->
-          <div *ngIf="['dotplot', 'barchart', 'linechart'].indexOf(currentPlotInstance) === -1" class="list-group h-100"
+          <!-- Default Hover Table (for Scatter*/Strip Plots + Dot Plot, now per-teen) -->
+          <div *ngIf="['barchart', 'linechart'].indexOf(currentPlotInstance) === -1" class="list-group h-100"
             style="overflow-x: hidden">
             <article class="list-group-item" id="tutorial-details-panel">
               <!-- Header -->
@@ -601,8 +601,8 @@
             </article>
           </div>
 
-          <!-- Hover Table for Dot Plot and Bar/Line Charts -->
-          <div *ngIf="['dotplot', 'barchart', 'linechart'].indexOf(currentPlotInstance) !== -1" class="list-group">
+          <!-- Hover Table for Bar/Line Charts (Dot Plot now uses the per-teen single-item panel above) -->
+          <div *ngIf="['barchart', 'linechart'].indexOf(currentPlotInstance) !== -1" class="list-group">
             <article class="list-group-item" id="tutorial-details-panel">
               <!-- Header -->
               <header #table_header class="details-header">
