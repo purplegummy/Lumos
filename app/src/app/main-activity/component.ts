@@ -56,6 +56,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   plotHeight: number;
   plotGroup: any;
   showPriorModal = false;
+  llmIntervention: any = null;
   // TEMP DEBUG: latest metrics from output_data, surfaced by the Logs panel.
   latestMetrics: any = null;
   showLogsPanel: boolean = false;
@@ -66,6 +67,12 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   // a handful so the walkthrough stays quick.
   get requiredSelections(): number {
     return this.global.isTutorial ? 3 : 10;
+  }
+
+  // appType, not appLayout: ?type=LLM sets appType to "LLM" but keeps the layout
+  // on CONTROL, so an appLayout check here would never be true.
+  get showLlmPanel(): boolean {
+    return this.global.appType === "LLM" && this.llmIntervention != null;
   }
 
   // Phase 1 (prior belief elicitation) must fully finish before phase 2 (the
@@ -107,11 +114,16 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
         this.global.appLevel = params["level"];
       }
       const typeAliases: Record<string, string> = { F: "CONTROL" };
+      // "LLM" is a backend-only condition: appType is sent to the server so the
+      // intervention can run, while appLayout stays CONTROL so none of the
+      // awareness/trace panels render. Without that split the LLM condition
+      // would be LLM+AWARENESS and its effect could never be isolated.
+      const typeToLayout: Record<string, string> = { LLM: "CONTROL" };
       const rawType = params["type"];
       const resolvedType = typeAliases[rawType] ?? rawType;
-      const validTypes = ["CONTROL", "AWARENESS", "ADMIN"];
+      const validTypes = ["CONTROL", "AWARENESS", "ADMIN", "LLM"];
       if (rawType && validTypes.includes(resolvedType)) {
-        this.global.appLayout = resolvedType;
+        this.global.appLayout = typeToLayout[resolvedType] ?? resolvedType;
         this.global.appType = resolvedType;
       }
       // Tutorial walkthrough: always CONTROL layout, dummy dataset, no logging.
@@ -546,6 +558,10 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
           context.updateAwarenessPanel();
           context.updateVis();
         }
+      });
+
+      context.chatService.getLlmIntervention().subscribe((obj) => {
+        context.llmIntervention = obj;
       });
 
       context.showPriorModal = true;
@@ -1299,6 +1315,35 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     };
     this.chatService.sendInteractionResponse(message);
     /* Prepare and Send New Message - End */
+  }
+
+  /**
+   * Applies a recommended theme's filters, as if the participant had set them by hand.
+   */
+  applyThemeFilter(theme): void {
+    // A theme is a conjunction: a range on one variable AND a diagnosis status.
+    // Applying only the range leaves in the diagnosis group the participant was
+    // already over-attending to, which is the opposite of the theme's contrast.
+    this.applyThemeRange(theme["variable"], theme["filter_ranges"], theme["title"]);
+    let diagnosis = theme["diagnosis_filter"];
+    if (diagnosis) {
+      this.applyThemeRange(diagnosis["variable"], diagnosis["filter_ranges"], theme["title"]);
+    }
+  }
+
+  applyThemeRange(attribute, ranges, title): void {
+    let attrConfig = this.appConfig[this.global.appMode]["attributes"][attribute];
+    if (!attrConfig) {
+      console.warn("[LLM] no filter to apply for theme:", title);
+      return;
+    }
+    // A fresh array, not an in-place edit: ngModel only writes into the slider /
+    // multiselect widget when the bound reference changes.
+    attrConfig["filterModel"] = ranges.slice();
+    // Filter rows are collapsed by default under CONTROL; open the one just
+    // applied so the participant can see and adjust it.
+    this.expandedFilters.add(attribute);
+    this.onChangeFilter(attribute, "llmTheme");
   }
 
   /**

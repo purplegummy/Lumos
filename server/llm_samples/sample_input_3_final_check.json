@@ -1,0 +1,21 @@
+{
+  "_description": "Final-check phase, pre-submission reflection.",
+  "phase": "final_check",
+  "trigger": true,
+  "dwell_bias": 0.34,
+  "point_level_dwell_bias_percentile": 0.97,
+  "diagnosis_focus": "Yes",
+  "dwell_bias_v": {
+    "screen_time_weekday": 0.51,
+    "hours_sleep_weeknight": 0.44,
+    "days_physical_activity_week": 0.15,
+    "difficulty_making_friends": 0.09
+  },
+  "attended_direction": {
+    "screen_time_weekday": "higher",
+    "hours_sleep_weeknight": "lower",
+    "days_physical_activity_week": "lower",
+    "difficulty_making_friends": "more_difficulty"
+  },
+  "previous_interventions": []
+}

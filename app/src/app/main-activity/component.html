@@ -941,7 +941,7 @@
         </as-split-area>
 
         <!-- ROW: Selected Subjects Panel (CONTROL only) -->
-        <as-split-area *ngIf="global.appLayout === 'CONTROL'" [size]="100">
+        <as-split-area *ngIf="global.appLayout === 'CONTROL'" [size]="showLlmPanel ? 40 : 100">
           <div class="list-group h-100">
             <article class="list-group-item selected-subjects-panel">
 
@@ -989,6 +989,15 @@
 
             </article>
           </div>
+        </as-split-area>
+
+        <!-- ROW: LLM Intervention Panel (LLM only) -->
+        <as-split-area *ngIf="showLlmPanel" [size]="60">
+          <app-llm-intervention
+            [intervention]="llmIntervention"
+            (explore)="applyThemeFilter($event)"
+            (closed)="llmIntervention = null"
+          ></app-llm-intervention>
         </as-split-area>
 
       </as-split>

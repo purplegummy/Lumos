@@ -13,6 +13,8 @@ import bias_util
 import firebase_logger
 import dc_metric
 import dc_adapter
+import llm_intervention
+import llm_trigger
 
 # Set the path for the Google Cloud Logging logger
 currdir = Path(__file__).parent.absolute()
@@ -23,6 +25,9 @@ currdir = Path(__file__).parent.absolute()
 JS_DEBUG = False
 
 CLIENTS = {}  # entire data map of all client data
+# pid -> last logged "not triggered" gate code. Keeps the LLM skip log to one
+# line per gate change instead of one per interaction.
+LLM_LAST_SKIP = {}
 CLIENT_PARTICIPANT_ID_SOCKET_ID_MAPPING = {}
 CLIENT_SOCKET_ID_PARTICIPANT_MAPPING = {}
 COMPUTE_BIAS_FOR_TYPES = [
@@ -86,7 +91,9 @@ async def on_session_end_page_level_logs(sid, payload):
     pid = payload["participantId"]
     if pid in CLIENTS and "data" in payload:
         dirname = f"output/{CLIENTS[pid]['app_type']}/{pid}"
-        Path(dirname).mkdir(exist_ok=True) 
+        # parents=True: a condition whose output/<app_type>/ dir isn't committed
+        # would otherwise raise here and skip the writes below.
+        Path(dirname).mkdir(parents=True, exist_ok=True)
         filename = f"output/{CLIENTS[pid]['app_type']}/{pid}/session_end_page_logs_{pid}_{bias_util.get_current_time()}.tsv"
         df_to_save = pd.DataFrame(payload["data"])
 
@@ -102,7 +109,7 @@ async def on_save_logs(sid, data):
         pid = CLIENT_SOCKET_ID_PARTICIPANT_MAPPING[sid]
         if pid in CLIENTS:
             dirname = f"output/{CLIENTS[pid]['app_type']}/{pid}"
-            Path(dirname).mkdir(exist_ok=True)
+            Path(dirname).mkdir(parents=True, exist_ok=True)
             ts = bias_util.get_current_time()
 
             filename = f"{dirname}/logs_{pid}_{ts}.tsv"
@@ -320,6 +327,37 @@ async def on_interaction(sid, data):
     await SIO.emit("log", response)  # send this to all
     await SIO.emit("interaction_response", response, room=sid)
     firebase_logger.save_logs(pid, [response])
+
+    # --- LLM intervention (condition: appType == "LLM") -----------------------
+    # Runs AFTER the interaction response has already been emitted above, so the
+    # ~4-6s Claude call is off the critical path. Fired as a background task that
+    # emits a SEPARATE "llm_intervention" event on completion; never inlined into
+    # output_data. Guarded: a broken LLM path must never break an interaction.
+    _out = response.get("output_data")
+    if app_type == "LLM" and _out and _out.get("dwell_bias"):
+        try:
+            client_record = CLIENTS[pid]
+            teens = bias.DATA_MAP.get(app_mode, {}).get("data", {})
+            _dwell = _out["dwell_bias"]
+            fired, reason = llm_trigger.evaluate_trigger(client_record, _dwell)
+            if fired:
+                client_record["llm_last_fired_at"] = bias_util.get_current_time()
+                LLM_LAST_SKIP.pop(pid, None)
+                print(f"[LLM] {pid}: triggered (dwell_bias={_dwell.get('dwell_bias'):+.4f}, "
+                      f"n_dwelled={_dwell.get('n_dwelled')})", flush=True)
+                SIO.start_background_task(
+                    llm_intervention.generate_and_emit,
+                    SIO, CLIENT_PARTICIPANT_ID_SOCKET_ID_MAPPING, pid,
+                    client_record, _dwell, teens)
+            else:
+                # Log only when the blocking gate CHANGES, so exploring shows
+                # why nothing fired without a line on every interaction.
+                code = reason.split(" ")[0]
+                if LLM_LAST_SKIP.get(pid) != code:
+                    LLM_LAST_SKIP[pid] = code
+                    print(f"[LLM] {pid}: not triggered ({reason})", flush=True)
+        except Exception as e:
+            print(f"[LLM] trigger failed: {e}", flush=True)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,27 @@
+<div class="list-group h-100">
+  <article class="list-group-item llm-panel">
+
+    <!-- Header -->
+    <header class="llm-header">
+      <h5 class="display-inline">
+        <span class="badge badge-secondary">Something to look at</span>
+      </h5>
+      <button class="btn btn-light btn-sm float-right" (click)="close()">
+        <i class="fa fa-times"></i>
+      </button>
+    </header>
+
+    <div class="llm-summary">{{ intervention.awareness_summary }}</div>
+    <div class="llm-transition">{{ intervention.transition }}</div>
+
+    <!-- Recommended themes -->
+    <div class="llm-theme" *ngFor="let theme of intervention.recommended_themes">
+      <div class="llm-theme-title">{{ theme.title }}</div>
+      <div class="llm-theme-description">{{ theme.description }}</div>
+      <button class="btn btn-outline-secondary btn-sm" (click)="explore.emit(theme)">
+        Show me these →
+      </button>
+    </div>
+
+  </article>
+</div>

@@ -184,7 +184,11 @@ export class UtilsService {
     let chartType = context.appConfig[context.global.appMode]["chartType"];
     let message = new Message();
     (message.appMode = context.global.appMode),
-    (message.appType = context.global.appLayout || context.global.appType),
+    // appType first: the backend needs the true condition. For CONTROL /
+    // AWARENESS / ADMIN the two are identical, so this is a no-op there; for
+    // LLM, appLayout is CONTROL (to hide the trace panels) while the server
+    // must still receive "LLM" or the intervention never runs.
+    (message.appType = context.global.appType || context.global.appLayout),
     (message.appLevel = context.global.appLevel),
     (message.chartType = chartType),
     (message.interactionType = ""),

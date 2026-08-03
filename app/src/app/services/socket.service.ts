@@ -85,4 +85,10 @@ export class ChatService {
       .fromEvent("attribute_distribution")
       .pipe(map((obj) => obj));
   }
+
+  getLlmIntervention() {
+    return this.vizSocket
+      .fromEvent("llm_intervention")
+      .pipe(map((obj) => obj));
+  }
 }
