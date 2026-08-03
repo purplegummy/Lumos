@@ -1,6 +1,7 @@
 {
   "_description": "Final-check phase, pre-submission reflection.",
   "phase": "final_check",
+  "trigger_signal": "selection-level bias over the participant's final selection exceeded participant-specific threshold",
   "trigger": true,
   "dwell_bias": 0.34,
   "point_level_dwell_bias_percentile": 0.97,

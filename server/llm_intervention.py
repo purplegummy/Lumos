@@ -18,6 +18,7 @@ ANTHROPIC_API_KEY is absent the client init prints one message and disables the
 feature. A missing key (or any failure) never raises and never affects the
 CONTROL / AWARENESS / ADMIN conditions.
 """
+import asyncio
 import json
 import os
 
@@ -77,6 +78,8 @@ OPPOSITE_DIRECTION = {"higher": "lower", "lower": "higher",
 
 THEME_SAME_PATTERN_DIFF_OUTCOME = "same pattern, different outcome"
 THEME_DIFF_PATTERN_SAME_OUTCOME = "same outcome, different pattern"
+
+SUMMARY_EVENT = "llm_summary"
 
 DEFAULT_TONE_CONSTRAINTS = [
     "Do not mention confirmation bias",
@@ -180,7 +183,12 @@ def build_awareness_input(session):
             "main_characteristics": [c["range"] for c in contributors],
         },
         "evidence_for_focus": {
-            "trigger_signal": "point-level dwell bias exceeded participant-specific threshold",
+            # Grounds the awareness_summary, so it must name the signal that
+            # really fired. Defaulted only for realtime callers and the fixtures
+            # that predate the key.
+            "trigger_signal": session.get(
+                "trigger_signal",
+                "point-level dwell bias exceeded participant-specific threshold"),
             "top_variable_contributors": contributors,
         },
         "tone_constraints": session.get("tone_constraints", DEFAULT_TONE_CONSTRAINTS),
@@ -232,6 +240,16 @@ def assemble_llm_input(session):
 DEFAULT_MODEL = "claude-sonnet-5"
 DEFAULT_EFFORT = "low"      # latency dial; this fires while the participant is mid-task
 MAX_TOKENS = 500
+
+# The SERVER owns the deadline, not the browser. The summary blocks a
+# participant's submit button behind a client-side timeout, and if the browser
+# gave up first we would emit (and record) an intervention nobody saw. Keep this
+# comfortably under LLM_SUMMARY_TIMEOUT_MS in main-activity/component.ts.
+GENERATION_TIMEOUT_SECONDS = 10.0
+# Backstop on a single HTTP call so a hung socket cannot pin an executor thread
+# for the SDK's multi-minute default. The wait_for above is the real deadline;
+# this only bounds the thread, which wait_for cannot cancel.
+API_TIMEOUT_SECONDS = 8.0
 
 OUTPUT_SCHEMA = {
     "type": "object",
@@ -317,7 +335,7 @@ def _get_client():
             print("[llm_intervention] No ANTHROPIC_API_KEY found - LLM intervention disabled.")
             return None
 
-        _client = anthropic.Anthropic(api_key=api_key)
+        _client = anthropic.Anthropic(api_key=api_key, timeout=API_TIMEOUT_SECONDS)
         print("[llm_intervention] Anthropic client initialised.")
         return _client
 
@@ -399,39 +417,158 @@ def generate(llm_input, model=DEFAULT_MODEL, effort=DEFAULT_EFFORT):
     return result
 
 
+def selection_metrics(detailed_map, selected_ids):
+    """Selection-weighted counterpart of dc_adapter.compute_dwell_metrics.
+
+    dwell_bias / dwell_bias_v take a generic {teen_id: weight} map, so weighting
+    every selected teen equally gives the selection-side metrics with no change to
+    dc_metric: the scalar reduces to dc_metric.selection_bias (mean DC over the
+    selection minus the all-teen mean, the number already logged as
+    dc_bias.selection_bias on qualifying interactions once priors are committed),
+    and the per-variable version is the breakdown that compute_phase_metrics does
+    not expose but the prompt assembly needs.
+
+    Lives here rather than in dc_adapter because that module is out of scope for
+    this feature.
+
+    FAIL-LOUD, inherited: a selected id absent from detailed_map raises KeyError.
+    The caller guards at the handler boundary, as on_interaction does for dwell.
+    """
+    weights = {teen_id: 1.0 for teen_id in selected_ids}
+    return {
+        "selection_bias": dc_metric.dwell_bias(detailed_map, weights),
+        "selection_bias_v": dc_metric.dwell_bias_v(detailed_map, weights),
+        "n_selected": len(weights),
+    }
+
+
+def live_room(sio, sid_by_pid, pid):
+    """The participant's CURRENTLY CONNECTED room, or None.
+
+    Two hazards this closes, both invisible without it:
+
+    1. sid_by_pid is never pruned (server.disconnect only timestamps), so after a
+       reconnect it holds the OLD sid. socket.io discards an emit to a dead room
+       silently -- no error, no return value -- so the caller would report success
+       for a message nobody received.
+    2. room=None is NOT "nobody" in socket.io: base_manager.connect enters every
+       client into room None, so it is the ALL-CLIENTS room. Emitting there would
+       broadcast one participant's personalised intervention to every other
+       participant in the study.
+    """
+    sid = sid_by_pid.get(pid)
+    if sid is None or not sio.manager.is_connected(sid, "/"):
+        return None
+    return sid
+
+
+async def emit_summary_skip(sio, room, reason, pid=None):
+    """Tell the frontend no summary is coming, so it can proceed to submit.
+
+    The participant's submit button waits on a SUMMARY_EVENT, so every path that
+    does not produce one -- gate not met, no dc_map, dead API key -- has to say so
+    explicitly. Staying silent would leave them unable to finish the study. The
+    frontend tells the two apart by the absence of recommended_themes.
+
+    Persists the outcome too: without it the treated-vs-untreated split for the
+    summary conditions exists only in stdout, and a participant who was gated out
+    is indistinguishable in the data from one who was never in the condition.
+    """
+    if room is not None:
+        await sio.emit(SUMMARY_EVENT, {"reason": reason}, room=room)
+    if pid:
+        firebase_logger.save_logs(pid, [{
+            "kind": "llm_summary_skipped",
+            "participant_id": pid,
+            "created_at": _now(),
+            "reason": reason,
+            "delivered": room is not None,
+        }])
+
+
 async def generate_and_emit(sio, sid_by_pid, pid, client_record, dwell_metrics, teens):
-    """Background task: assemble -> generate -> emit the intervention.
+    """Background task: assemble -> generate -> emit the realtime intervention.
 
     Fired via SIO.start_background_task from on_interaction AFTER the interaction
     response has already gone out, so the ~4-6s Claude call is off the critical
-    path. Wrapped end-to-end in try/except: a broken LLM call must never break an
-    interaction response or lose data.
+    path.
 
     Takes the pid -> sid map rather than a sid: a reconnect during those seconds
     gives the participant a NEW sid, and emitting to the old room silently
-    delivers nothing.
+    delivers nothing. live_room resolves it and rejects a stale one.
 
-    On success emits an "llm_intervention" event to the participant's room,
-    appends a compact record to client_record["llm_interventions"] (fed back as
-    previous_interventions next time), and persists via firebase_logger.
-
-    The socket emit is kept for whoever wires the interface later; until then the
-    input and output are observable from the server log alone (the [LLM] lines
-    below), which is how this is validated with no frontend attached.
+    Emits an "llm_intervention" event carrying the generated object with each
+    theme's variable / diagnosis_filter attached (see _generate_and_emit) -- the
+    shape the frontend panel already consumes.
     """
-    try:
-        dwell = dc_metric.dwell_by_teen(client_record.get("bias_logs", []))
-        dwell_bias_v = dwell_metrics.get("dwell_bias_v", {})
-        variables = list(dwell_bias_v.keys())
+    await _generate_and_emit(
+        sio, sid_by_pid, pid, client_record, teens,
+        weights=dc_metric.dwell_by_teen(client_record.get("bias_logs", [])),
+        bias_v=dwell_metrics.get("dwell_bias_v", {}),
+        phase="realtime",
+        trigger_signal="point-level dwell bias exceeded participant-specific threshold",
+        event="llm_intervention")
 
-        attended_direction = llm_trigger.derive_attended_direction(teens, dwell, variables)
-        diagnosis_focus = _majority_diagnosis(teens, dwell)
+
+async def generate_summary_and_emit(sio, sid_by_pid, pid, client_record,
+                                    selection, teens, selected_ids):
+    """Background task: the same pipeline, run on the FINAL SELECTION at submit.
+
+    Differs from generate_and_emit only in the arguments below: the teens are
+    weighted equally by having been selected rather than by dwell time, the
+    per-variable scores come from the selection, the phase is "final_check"
+    (which the prompt already frames as "before you submit"), the trigger signal
+    names the selection, and the event is SUMMARY_EVENT.
+
+    Emits exactly one SUMMARY_EVENT either way -- a generation that failed, timed
+    out, or could not be delivered still has to release the submit button.
+    """
+    generated = await _generate_and_emit(
+        sio, sid_by_pid, pid, client_record, teens,
+        weights={teen_id: 1.0 for teen_id in selected_ids},
+        bias_v=selection.get("selection_bias_v", {}),
+        phase="final_check",
+        trigger_signal="selection-level bias over the participant's final selection "
+                       "exceeded participant-specific threshold",
+        event=SUMMARY_EVENT)
+    if not generated:
+        await emit_summary_skip(sio, live_room(sio, sid_by_pid, pid),
+                                "generation_failed", pid)
+
+
+async def _generate_and_emit(sio, sid_by_pid, pid, client_record, teens,
+                             weights, bias_v, phase, trigger_signal, event):
+    """Shared assemble -> generate -> emit -> persist core. Returns whether it DELIVERED.
+
+    False covers "generation failed", "timed out", and "generated but the
+    participant had no live socket" -- the caller has to treat all three the same
+    way, because in all three the participant never saw anything.
+
+    Everything downstream of the weights is phase-agnostic: derive_attended_direction
+    and _majority_diagnosis both take a {teen_id: weight} map, so the realtime and
+    summary paths differ only in the arguments above.
+
+    Wrapped end-to-end in try/except: a broken LLM call must never break an
+    interaction response or lose data. Appends a compact record to
+    client_record["llm_interventions"], which is fed back as previous_interventions
+    so later generations (including a summary following realtime nudges) vary their
+    wording, and persists the full input/output via firebase_logger.
+    """
+    delivered = False   # set before the try: the except clauses read it
+    try:
+        variables = list(bias_v.keys())
+
+        attended_direction = llm_trigger.derive_attended_direction(teens, weights, variables)
+        diagnosis_focus = _majority_diagnosis(teens, weights)
 
         session = {
-            "phase": "realtime",
-            "dwell_bias_v": dwell_bias_v,
+            "phase": phase,
+            # Carries selection-weighted scores on the final_check path. The key
+            # keeps its dwell name so the llm_samples fixtures stay valid.
+            "dwell_bias_v": bias_v,
             "attended_direction": attended_direction,
             "diagnosis_focus": diagnosis_focus,
+            "trigger_signal": trigger_signal,
             "previous_interventions": client_record.get("llm_interventions", []),
         }
         llm_input = assemble_llm_input(session)
@@ -448,13 +585,22 @@ async def generate_and_emit(sio, sid_by_pid, pid, client_record, dwell_metrics, 
         print(f"[LLM] {pid}: themes {_themes}", flush=True)
 
         started = _now()
-        result, usage = generate_with_usage(llm_input)
+        # run_in_executor, not a direct call: the Anthropic SDK client is
+        # SYNCHRONOUS, and start_background_task returns an asyncio.Task on this
+        # same loop -- so calling it inline froze the whole server (every
+        # participant's interactions, not just this one) for the length of the
+        # HTTP request. wait_for then bounds the total, including the
+        # BadRequestError retry, which a per-call SDK timeout would not.
+        loop = asyncio.get_event_loop()
+        result, usage = await asyncio.wait_for(
+            loop.run_in_executor(None, generate_with_usage, llm_input),
+            timeout=GENERATION_TIMEOUT_SECONDS)
         elapsed = (_now() - started) / 1000.0
         if result is None:
             # Disabled (no API key) or generation failed; both already logged a
             # line of their own. Say so here so the trigger has a visible end.
             print(f"[LLM] {pid}: no output ({elapsed:.1f}s)", flush=True)
-            return
+            return False
 
         # Attach both halves of each recommended theme's filter: the variable its
         # range applies to, and the diagnosis status it contrasts against. The
@@ -495,38 +641,63 @@ async def generate_and_emit(sio, sid_by_pid, pid, client_record, dwell_metrics, 
         print(f"[LLM] {pid}: output themes={_titles} "
               f"({elapsed:.1f}s, tokens {_tokens})", flush=True)
 
-        await sio.emit("llm_intervention", result, room=sid_by_pid.get(pid))
+        room = live_room(sio, sid_by_pid, pid)
+        if room is not None:
+            await sio.emit(event, result, room=room)
+            delivered = True
+        else:
+            print(f"[LLM] {pid}: {event} not delivered (no live socket)", flush=True)
 
         # Persist the generated text so it is recoverable for analysis. This is
         # research data, not just UI. Reuse the existing per-participant logs path.
         firebase_logger.save_logs(pid, [{
-            "kind": "llm_intervention",
+            # The event name doubles as the record kind, so realtime nudges and
+            # pre-submission summaries stay separable in the analysis data.
+            "kind": event,
             "participant_id": pid,
             "created_at": _now(),
+            # Generated is not seen. Without this an undelivered intervention
+            # would count as treatment in the analysis.
+            "delivered": delivered,
             "llm_input": llm_input,
             "output": result,
         }])
+        return delivered
+    except asyncio.TimeoutError:
+        print(f"[LLM] {pid}: {event} timed out after "
+              f"{GENERATION_TIMEOUT_SECONDS}s", flush=True)
+        return False
     except Exception as e:
-        print(f"[LLM] generate_and_emit failed: {e}", flush=True)
+        # Return what actually reached the participant, not False. A failure
+        # AFTER the emit (persistence, logging) must not make the caller send a
+        # second "nothing to show" for a summary they are already looking at.
+        print(f"[LLM] {event} failed: {e}", flush=True)
+        return delivered
 
 
-def _majority_diagnosis(teens, dwell):
-    """Dwell-WEIGHTED majority diagnosis status among the dwelled teens.
+def _majority_diagnosis(teens, weights):
+    """WEIGHTED majority diagnosis status among the teens carrying weight.
 
-    Weighted by dwell time -- consistent with the rest of the pipeline
-    (dwell_bias, dwell_bias_v, derive_attended_direction). A plain head count
-    would let diagnosis_focus contradict the dwell signal that fired the trigger
-    (e.g. long dwells on a few diagnosed teens plus brief glances at many
-    non-diagnosed ones), which would invert current_focus and flip both
+    Weighted by whatever drove this generation, consistent with the rest of the
+    pipeline (dwell_bias, dwell_bias_v, derive_attended_direction).
+
+    On the REALTIME path the weights are dwell times, and that matters: a plain
+    head count would let diagnosis_focus contradict the dwell signal that fired
+    the trigger (e.g. long dwells on a few diagnosed teens plus brief glances at
+    many non-diagnosed ones), which would invert current_focus and flip both
     candidate_themes -- recommending the participant's own fixation back to them.
 
-    Returns "Yes" when diagnosed teens hold MORE than half the total dwell time,
-    else "No" (ties -> "No", matching the dataset's own majority). Falls back to
-    "No" when no dwelled teen carries the label column.
+    On the SUMMARY path every weight is 1.0, so this does reduce to a head count
+    over the selection. That is intended, not an oversight: a teen is either in
+    the final selection or not, so each one counts once.
+
+    Returns "Yes" when diagnosed teens hold MORE than half the total weight, else
+    "No" (ties -> "No", matching the dataset's own majority). Falls back to "No"
+    when no weighted teen carries the label column.
     """
     diagnosed_weight = 0.0
     total_weight = 0.0
-    for teen_id, weight in dwell.items():
+    for teen_id, weight in weights.items():
         teen = teens.get(teen_id)
         if teen is None or dc_metric.LABEL_ATTR not in teen:
             continue

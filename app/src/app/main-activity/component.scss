@@ -471,6 +471,39 @@
   max-width: 520px;
 }
 
+.llm-summary-panel {
+  max-width: 420px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.llm-summary-transition {
+  font-size: 0.78rem;
+  color: #999;
+  line-height: 1.4;
+  margin-bottom: 12px;
+}
+
+.llm-theme {
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.llm-theme-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+
+.llm-theme-description {
+  font-size: 0.78rem;
+  color: #666;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
 .instructions-modal-panel .confirm-modal-body p {
   margin: 0 0 12px;
 }
