@@ -245,11 +245,15 @@ MAX_TOKENS = 500
 # participant's submit button behind a client-side timeout, and if the browser
 # gave up first we would emit (and record) an intervention nobody saw. Keep this
 # comfortably under LLM_SUMMARY_TIMEOUT_MS in main-activity/component.ts.
-GENERATION_TIMEOUT_SECONDS = 10.0
-# Backstop on a single HTTP call so a hung socket cannot pin an executor thread
-# for the SDK's multi-minute default. The wait_for above is the real deadline;
-# this only bounds the thread, which wait_for cannot cancel.
-API_TIMEOUT_SECONDS = 8.0
+#
+# Sized from measurement, not taste: over 6 runs latency was min 5.5s, median
+# 6.0s, max 14.1s. A tighter bound drops a real share of interventions.
+GENERATION_TIMEOUT_SECONDS = 20.0
+# Per-attempt ceiling, deliberately GENEROUS. A tight value here is worse than
+# none: the SDK retries its own timeouts, so an 8s setting turned a single slow
+# call into 14.1s of retries. The wait_for above is the real deadline; this only
+# stops a hung socket pinning an executor thread, which wait_for cannot cancel.
+API_TIMEOUT_SECONDS = 20.0
 
 OUTPUT_SCHEMA = {
     "type": "object",

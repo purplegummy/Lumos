@@ -33,7 +33,7 @@ declare var vegaEmbed: any;
 // Last resort for a reply that never arrives. The server bounds its own
 // generation well under this (llm_intervention.GENERATION_TIMEOUT_SECONDS), so
 // hitting this means the socket dropped, not that the model was slow.
-const LLM_SUMMARY_TIMEOUT_MS = 15000;
+const LLM_SUMMARY_TIMEOUT_MS = 25000;
 
 @Component({
   selector: "main-activity",
