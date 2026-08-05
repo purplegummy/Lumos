@@ -246,6 +246,9 @@ async def on_task_submitted(sid, data):
                 print(f"[SEL%] pid={pid} | "
                       f"selection_bias_percentile={pct['selection_bias_percentile']} "
                       f"(n_selected={len(subjects)})", flush=True)
+                distinct_vals = sorted(set(round(v, 4) for v in dc_map_cached.values()))
+                print(f"[DC-ARR] pid={pid} | n={len(dc_map_cached)} distinct={len(distinct_vals)} | "
+                      f"values={'  '.join(f'{v:.4f}' for v in dc_map_cached.values())}", flush=True)
             except Exception as e:
                 print(f"[SEL%] compute failed: {e}", flush=True)
 
