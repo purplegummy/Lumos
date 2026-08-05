@@ -61,11 +61,104 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   plotHeight: number;
   plotGroup: any;
   showPriorModal = false;
-  llmIntervention: any = null;
+  private _llmIntervention: any = null;
   llmSummary: any = null;
   llmSummaryLoading = false;
   private llmSummaryRequested = false;
   private llmSummaryTimer: any = null;
+  // Tutorial's LLM panel has no real server round trip to drive it (chatService
+  // is a no-op in tutorial mode), so it's derived live from whatever point is
+  // currently hovered instead of the one canned message the real study gets
+  // from getLlmIntervention(). Dismissing it (the panel's close button) should
+  // stick for the rest of the tutorial rather than reappearing on the next
+  // hover, hence the separate flag instead of just nulling a stored value.
+  private tutorialLlmDismissed = false;
+  // mouseoutItem clears dataset['hoveredObject'] to {hovered:false} the instant
+  // the cursor leaves the point -- well before it can travel to this panel's
+  // button. So the getter only recomputes on a REAL hover and otherwise keeps
+  // returning this cached value, making the suggestion sticky (stays up, and
+  // clickable) until a different point is hovered or the panel is dismissed.
+  private tutorialLlmLast: any = null;
+
+  get llmIntervention(): any {
+    // Tutorial only ever drives the realtime-suggestion condition (LLM /
+    // LLM_BOTH) -- see startTutorial's isLlm param and its call site below.
+    if (this.global.isTutorial && this.llmRealtimeEnabled) {
+      if (this.tutorialLlmDismissed) return null;
+      const dataset = this.appConfig[this.global.appMode];
+      const hovered = dataset && dataset["hoveredObject"];
+      if (hovered && hovered["hovered"] !== false) {
+        this.tutorialLlmLast = this.tutorialLlmInterventionFor(hovered);
+      } else if (this.tutorialLlmLast == null) {
+        this.tutorialLlmLast = this.tutorialLlmInterventionFor(null);
+      }
+      return this.tutorialLlmLast;
+    }
+    return this._llmIntervention;
+  }
+  set llmIntervention(value: any) {
+    if (this.global.isTutorial && this.llmRealtimeEnabled) {
+      if (value == null) this.tutorialLlmDismissed = true;
+      return;
+    }
+    this._llmIntervention = value;
+  }
+
+  // Panel stays visible for the whole tutorial (driver.js's "llm" step
+  // highlights it by CSS selector, so it must already be in the DOM by the
+  // time that step is reached) rather than only appearing once a qualifying
+  // hover happens. Price on the hovered home relative to $140K swaps in a
+  // nudge toward the OPPOSITE end of the range -- mirroring the kind of
+  // dwell-bias theme the real LLM condition would surface for either
+  // direction, not just the below-threshold case -- so hovering any home
+  // (cheap or pricey) produces a suggestion; only "nothing hovered yet"
+  // falls back to a generic idle message.
+  // filter_ranges/variable on the theme are real applyThemeFilter inputs
+  // (see applyThemeFilter below) so the panel's button actually filters the
+  // plot, not just a cosmetic suggestion.
+  private static readonly TUTORIAL_LLM_PRICE_THRESHOLD = 140000;
+
+  private tutorialLlmInterventionFor(hovered: any): any {
+    const priceAttr = this.appConfig["tutorial_data.csv"]["attributes"]["Price"];
+    const fmt = (n: number) => this.utilsService.formatLargeNum(n);
+    const price = hovered && hovered["hovered"] !== false ? Number(hovered["Price"]) : NaN;
+    const hasThreshold = isFinite(priceAttr.min) && isFinite(priceAttr.max);
+    const threshold = MainActivityComponent.TUTORIAL_LLM_PRICE_THRESHOLD;
+
+    if (hasThreshold && isFinite(price)) {
+      if (price < threshold) {
+        return {
+          awareness_summary: `You've been spending more time looking at homes on the less expensive end of the range (around $${fmt(price)}).`,
+          transition: "Here's another angle worth a look before you decide:",
+          recommended_themes: [
+            {
+              title: "Higher-priced homes",
+              description: `Compare against homes priced above $${fmt(threshold)}.`,
+              variable: "Price",
+              filter_ranges: [threshold, priceAttr.max],
+            },
+          ],
+        };
+      }
+      return {
+        awareness_summary: `You've been spending more time looking at homes on the pricier end of the range (around $${fmt(price)}).`,
+        transition: "Here's another angle worth a look before you decide:",
+        recommended_themes: [
+          {
+            title: "Lower-priced homes",
+            description: `Compare against homes priced below $${fmt(threshold)}.`,
+            variable: "Price",
+            filter_ranges: [priceAttr.min, threshold],
+          },
+        ],
+      };
+    }
+    return {
+      awareness_summary: "Hover over a home to see how it compares to the rest of the range.",
+      transition: "This panel will suggest a different angle to explore as you go.",
+      recommended_themes: [],
+    };
+  }
   // TEMP DEBUG: latest metrics from output_data, surfaced by the Logs panel.
   latestMetrics: any = null;
   showLogsPanel: boolean = false;
@@ -88,6 +181,16 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     return this.global.appType === "LLM_SUMMARY" || this.global.appType === "LLM_BOTH";
   }
 
+  // .subject-list reserves exactly this much height so the submit button
+  // below never shifts as subjects get added -- computed directly in px
+  // here (one row is ~1.3em line-height + 12px padding + 1px gap, ~31px at
+  // this panel's font-size) and bound as a plain style, rather than via a
+  // CSS custom property + em-based calc() where there's no way to be sure
+  // the value is actually resolving without opening a real browser.
+  get subjectListMinHeightPx(): number {
+    return this.requiredSelections * 31;
+  }
+
   get showLlmPanel(): boolean {
     return this.llmRealtimeEnabled && this.llmIntervention != null;
   }
@@ -98,7 +201,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   onPriorModalClosed(): void {
     this.showPriorModal = false;
     if (this.global.isTutorial) {
-      startTutorial();
+      startTutorial(this.appConfig[this.global.appMode], this.llmRealtimeEnabled);
     }
   }
 
@@ -130,7 +233,9 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
       if("level" in params){
         this.global.appLevel = params["level"];
       }
-      const typeAliases: Record<string, string> = { F: "CONTROL" };
+      // F/L/S/B one-letter shorthands for the four study groups: Control,
+      // LLM (realtime only), Summary (pre-submission only), Both.
+      const typeAliases: Record<string, string> = { F: "CONTROL", L: "LLM", S: "LLM_SUMMARY", B: "LLM_BOTH" };
       // The LLM conditions are backend-only: appType is sent to the server so the
       // intervention can run, while appLayout stays CONTROL so none of the
       // awareness/trace panels render. Without that split the LLM conditions
@@ -150,11 +255,21 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
         this.global.appType = resolvedType;
       }
       // Tutorial walkthrough: always CONTROL layout, dummy dataset, no logging.
+      // appType stays whatever was actually requested when it's a realtime-LLM
+      // condition (LLM or LLM_BOTH) rather than being forced to CONTROL -- the
+      // LLM tutorial needs llmRealtimeEnabled so showLlmPanel can turn on below.
+      // LLM_SUMMARY (summary-only, no realtime panel) gets the plain CONTROL
+      // tutorial, same as CONTROL itself.
       if (isTutorialRequested(params)) {
         this.global.isTutorial = true;
         this.global.appLayout = "CONTROL";
-        this.global.appType = "CONTROL";
+        if (!this.llmRealtimeEnabled) this.global.appType = "CONTROL";
         this.chatService.setTutorialMode(true);
+        // Tutorial mode never gets a real server-triggered LLM response (no
+        // live dwell-bias computation runs against the dummy dataset) -- the
+        // `llmIntervention` getter derives one live from the hovered point
+        // instead (see tutorialLlmInterventionFor below), so nothing to seed
+        // here.
       }
     });
     this.qFilterSliderConfig = (attribute) => {
@@ -231,6 +346,18 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     });
   }
 
+  // Kept separately from llmSummary (which the modal's *ngIf is driven by, and
+  // which "Go back and revise" nulls out to close it) so the content survives
+  // dismissal -- viewSummary() below re-opens the modal from this cache
+  // without re-requesting from the server or re-showing the loading state.
+  lastLlmSummary: any = null;
+  // True only while the modal is open via viewSummary() (looking back at an
+  // already-submitted-worthy summary out of curiosity), false while it's
+  // open as part of an actual submit attempt. Drives whether the modal shows
+  // "Submit anyway" -- reviewing the summary should never itself be a way to
+  // submit the task.
+  summaryViewOnly = false;
+
   onLlmSummary(obj) {
     if (!this.llmSummaryLoading) return; // a late reply we already gave up on
     clearTimeout(this.llmSummaryTimer);
@@ -238,7 +365,9 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     // Nothing to show (gate not met, no dc_map, generation failed) carries a
     // reason instead of themes; fall through to the usual confirm dialog.
     if (obj && obj['recommended_themes']) {
+      this.summaryViewOnly = false;
       this.llmSummary = obj;
+      this.lastLlmSummary = obj;
     } else {
       // Only a summary the participant actually SAW closes the door. Leaving the
       // flag set here would let one transient failure drop them to a de-facto
@@ -252,6 +381,17 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   reviseWithTheme(theme): void {
     this.applyThemeFilter(theme);
     this.llmSummary = null;
+  }
+
+  /**
+   * Re-open the most recently generated summary on demand, e.g. from a "View
+   * Summary" button -- lets the participant look back at it anytime after
+   * dismissing it, without triggering a new LLM request or the submit flow.
+   */
+  viewSummary(): void {
+    if (!this.lastLlmSummary) return;
+    this.summaryViewOnly = true;
+    this.llmSummary = this.lastLlmSummary;
   }
 
   cancelSubmit() {
@@ -327,10 +467,18 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   // Elicitation is gated by attribute count, not row count, so the real
   // schema (6 attributes x 2 conditions x 2 steps = 24 steps) would make the
   // tutorial anything but quick. Restrict it to a single attribute so
-  // phase 1 stays real but short.
+  // phase 1 stays real but short -- just one page, not one per attribute.
   getElicitationAttributes(): string[] {
     const qAttrs = this.appConfig[this.global.appMode]?.attributeDatatypeList?.Q || [];
     return this.global.isTutorial ? ["Price"] : qAttrs;
+  }
+
+  // Same idea as the tutorial's filter allowlist: keep the X/Y axis
+  // dropdowns down to the three attributes the tour actually talks about,
+  // instead of listing all 14 housing attributes.
+  private readonly tutorialEncodableAttrs = ["Home Type", "Price", "Lot Area"];
+  isEncodable(attr: string): boolean {
+    return !this.global.isTutorial || this.tutorialEncodableAttrs.includes(attr);
   }
 
   getElicitationCategoricalValues(): Record<string, string[]> {
@@ -339,10 +487,11 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
 
   // The real modal's "diagnosed / not diagnosed" wording doesn't apply to
   // the tutorial's unrelated dummy dataset, so swap in a concrete split that
-  // actually exists in the sample housing data ("Central Air": Y/N).
+  // actually exists in the sample housing data ("Home Type": Single Family
+  // vs Duplex, the only two types present in tutorial_data.csv).
   getElicitationConditionLabels(): { diagnosed?: string; not_diagnosed?: string } {
     return this.global.isTutorial
-      ? { diagnosed: "homes with central air conditioning", not_diagnosed: "homes without central air conditioning" }
+      ? { diagnosed: "single-family homes", not_diagnosed: "duplexes" }
       : {};
   }
 
@@ -521,10 +670,19 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
         context.removeFilter(attr, false, false);
       });
 
-      // For the mental health dataset (and its tutorial stand-in), show all filters by default
-      if (context.global.appMode === "mental_health_data.csv" || context.global.appMode === "tutorial_data.csv") {
+      // For the mental health dataset, show all filters by default.
+      if (context.global.appMode === "mental_health_data.csv") {
         dataset.attributeList.forEach((attr: string) => {
           if (attr !== "id") dataset["attributes"][attr]["filter"] = true;
+        });
+      }
+      // Its tutorial stand-in only surfaces the three attributes the tour
+      // actually talks about (Home Type, Price, Lot Area) -- the full
+      // filter list would be noise for a short practice round.
+      if (context.global.appMode === "tutorial_data.csv") {
+        const tutorialFilterableAttrs = ["Home Type", "Price", "Lot Area"];
+        dataset.attributeList.forEach((attr: string) => {
+          dataset["attributes"][attr]["filter"] = tutorialFilterableAttrs.includes(attr);
         });
       }
 
@@ -1396,6 +1554,17 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
    * Applies a recommended theme's filters, as if the participant had set them by hand.
    */
   applyThemeFilter(theme): void {
+    // In the tutorial, the participant may have already fiddled with other
+    // filters earlier in the walkthrough (the "filters" step requires it).
+    // Those stale filters can hide rows the theme is supposed to surface, so
+    // clear every filter the theme itself isn't about to set before applying
+    // it -- otherwise the suggestion can silently show nothing. The real
+    // study leaves other filters alone: a participant's own filter choices
+    // are real task state, not tutorial scaffolding to reset out from under them.
+    if (this.global.isTutorial) {
+      const keepAttrs = [theme["variable"], theme["diagnosis_filter"]?.["variable"]].filter(Boolean);
+      this.resetOtherFiltersToDefault(keepAttrs);
+    }
     // A theme is a conjunction: a range on one variable AND a diagnosis status.
     // Applying only the range leaves in the diagnosis group the participant was
     // already over-attending to, which is the opposite of the theme's contrast.
@@ -1404,6 +1573,38 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     if (diagnosis) {
       this.applyThemeRange(diagnosis["variable"], diagnosis["filter_ranges"], theme["title"]);
     }
+  }
+
+  /**
+   * Resets every filter's VALUE (not its visibility) back to its unfiltered
+   * default for every attribute except `exceptAttributes` -- same
+   * per-datatype defaults as removeFilter, but deliberately leaves
+   * attrConfig["filter"] untouched. removeFilter flips that flag off, which
+   * hides the attribute's whole row from the filters panel (see
+   * component.html's `*ngIf="...['filter']"` on each row) -- fine for an
+   * explicit "remove this filter" action, but here the participant should
+   * still see and be able to edit every filter they'd already opened; only
+   * its value snaps back to default. Sends no per-attribute interaction
+   * messages -- this is tutorial-only scaffolding, not a participant-driven
+   * filter change.
+   */
+  private resetOtherFiltersToDefault(exceptAttributes: string[]): void {
+    const dataset = this.appConfig[this.global.appMode];
+    Object.keys(dataset["attributes"]).forEach((attribute) => {
+      if (exceptAttributes.includes(attribute)) return;
+      const attrConfig = dataset["attributes"][attribute];
+      if (
+        this.utilsService.isMeasure(dataset, attribute, "N") ||
+        this.utilsService.isMeasure(dataset, attribute, "O")
+      ) {
+        attrConfig["filterModel"] = attrConfig["types"];
+      } else if (
+        this.utilsService.isMeasure(dataset, attribute, "Q") ||
+        this.utilsService.isMeasure(dataset, attribute, "T")
+      ) {
+        attrConfig["filterModel"] = [attrConfig["min"], attrConfig["max"]];
+      }
+    });
   }
 
   applyThemeRange(attribute, ranges, title): void {
@@ -1480,32 +1681,6 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     /* Prepare and Send New Message - Start */
     let message = this.utilsService.initializeNewMessage(this);
     message.interactionType = InteractionTypes.REMOVE_ALL_FILTERS;
-    message.data = {
-      eventX: null,
-      eventY: null,
-    };
-    this.chatService.sendInteractionResponse(message);
-    /* Prepare and Send New Message - End */
-  }
-
-  /**
-   * Reset all encodings.
-   */
-  resetAllEncodings() {
-    this.onChangeChart(null, true, false);
-    this.onChangeAttribute(null, "x_axis", true, false);
-    this.onChangeAttribute(null, "y_axis", true, false);
-
-    // ToDo:- Revisit this code-block when the onChangeColorByMode is available by default for all appModes.
-    if (this.global.appMode == "ADMIN") {
-      this.onChangeVISColorByMode(null, true, false);
-      this.onChangeAttributeColorByMode(null, true, false);
-    }
-    this.updateVis(); // only update the vis after all encodings are reset
-
-    /* Prepare and Send New Message - Start */
-    let message = this.utilsService.initializeNewMessage(this);
-    message.interactionType = InteractionTypes.REMOVE_ALL_ENCODINGS;
     message.data = {
       eventX: null,
       eventY: null,
@@ -1629,6 +1804,10 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   onChangeFilter(attribute, changeType) {
     let dataset = this.appConfig[this.global.appMode];
     dataset["attributeInteracted"][attribute] += 1;
+    // Distinct from attributeInteracted, which onChangeAttribute (axis
+    // selection) also increments -- the tutorial needs to gate specifically
+    // on a real filter change, not any interaction with the attribute.
+    dataset["filterChanged"] = true;
     /* Prepare and Send New Message - Start */
     let message = this.utilsService.initializeNewMessage(this);
     message.interactionType = InteractionTypes.CHANGE_FILTER;

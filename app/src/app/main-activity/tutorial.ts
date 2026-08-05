@@ -111,29 +111,6 @@ function advanceOnHoverDwell(
 }
 
 /**
- * Reveals the current step's "Next" button once `eventType` fires on
- * `selector`, instead of auto-advancing straight past it. Lets the
- * participant confirm they're ready rather than being jumped to the next
- * step the instant they interact. Stays armed for the tour's whole lifetime
- * (see advanceOnHoverDwell for why) so redoing the interaction after
- * clicking "Previous" back into this step still reveals it again.
- */
-function revealNextOnEvent(
-  tour: ReturnType<typeof driver>,
-  stepIndex: number,
-  selector: string,
-  eventType: "click" | "mouseover" = "click"
-): void {
-  const el = document.querySelector(selector);
-  if (!el) return;
-  el.addEventListener(eventType, () => {
-    if (tour.getActiveIndex() !== stepIndex) return;
-    const nextBtn = document.querySelector(".driver-popover-next-btn") as HTMLElement | null;
-    if (nextBtn) nextBtn.style.display = "block";
-  });
-}
-
-/**
  * Advances the tour past `stepIndex` whenever `eventType` fires on
  * `selector` while that step is actually active — a stray event before (or
  * after) its step is current is ignored. Stays armed for the tour's whole
@@ -160,19 +137,24 @@ function advanceOnEvent(
 }
 
 /**
- * Bin labels come from binning.service as plain "150000-200000" (no
- * formatting, since that service is generic across attributes). This is
- * specifically about the Price attribute, so reformat each side as currency
- * for the explanation text.
+ * Bin labels come from binning.service as half-open interval notation, e.g.
+ * "[150000, 200000)" (or "[lo, hi]" for the last bin) -- "$"/"," may or may
+ * not already be baked in depending on the caller's isCurrency (bib.ts passes
+ * its own; modal.ts's internal computeBins calls don't). Strip any existing
+ * "$"/"," before reparsing so this reformats correctly either way, then
+ * reapply currency formatting when the attribute being placed is Price;
+ * leave other attributes (e.g. Lot Area) as plain grouped numbers.
  */
-function formatPriceRange(rangeLabel: string): string {
-  const parts = rangeLabel.split("-");
-  if (parts.length !== 2) return rangeLabel;
+function formatRange(rangeLabel: string, isCurrency: boolean): string {
+  const match = rangeLabel.match(/^\[(.+), (.+)([)\]])$/);
+  if (!match) return rangeLabel;
+  const [, loRaw, hiRaw, close] = match;
   const fmt = (s: string) => {
-    const n = Number(s);
-    return Number.isFinite(n) ? `$${n.toLocaleString()}` : s;
+    const n = Number(s.replace(/[$,]/g, ""));
+    if (!Number.isFinite(n)) return s;
+    return isCurrency ? `$${n.toLocaleString()}` : n.toLocaleString();
   };
-  return `${fmt(parts[0])}-${fmt(parts[1])}`;
+  return `[${fmt(loRaw)}, ${fmt(hiRaw)}${close}`;
 }
 
 /**
@@ -197,16 +179,23 @@ function armTokenPlacementExplanation(tour: ReturnType<typeof driver>, stepIndex
     const target = event.target as Element | null;
     const binColumn = target?.closest(".bin-column");
     if (!binColumn) return;
+    // The modal's own title shows which attribute is currently being
+    // placed -- read it rather than hardcoding Price, so this still works
+    // if the tutorial's elicited attribute ever changes.
+    const modalTitleEl = document.querySelector(".modal-header-left .modal-title");
+    const badgeText = modalTitleEl?.querySelector(".step-badge")?.textContent || "";
+    const attrName = modalTitleEl?.textContent?.replace(badgeText, "").trim() || "Price";
+    const isPrice = attrName.toLowerCase().includes("price");
     const rawRangeLabel = binColumn.querySelector(".label")?.textContent?.trim() || "this range";
-    const rangeLabel = formatPriceRange(rawRangeLabel);
+    const rangeLabel = formatRange(rawRangeLabel, isPrice);
     const countText = binColumn.querySelector(".count")?.textContent?.trim() || "0";
-    const group = binColumn.querySelector(".count-a") ? "with" : "without";
+    const group = binColumn.querySelector(".count-a") ? "single-family homes" : "duplexes";
     const titleEl = document.querySelector(".driver-popover-title");
     const descEl = document.querySelector(".driver-popover-description");
     const nextBtn = document.querySelector(".driver-popover-next-btn") as HTMLElement | null;
     if (titleEl) titleEl.textContent = "What This Means";
     if (descEl) {
-      descEl.textContent = `Out of 30 homes ${group} central air conditioning, you expect ${countText} to have a price between ${rangeLabel}.`;
+      descEl.textContent = `Out of 30 ${group}, you expect ${countText} to have a ${isPrice ? "price" : "lot area"} between ${rangeLabel}.`;
     }
     if (nextBtn) {
       nextBtn.style.display = "block";
@@ -232,23 +221,30 @@ export function startElicitationIntro(): void {
     steps: [
       {
         popover: {
-          title: "Tutorial Overview",
+          title: "Welcome!",
           description:
-            "This is a tutorial. It's intended to walk you through how the interface works, using sample data, before you begin the real task. Nothing you do here is recorded, and the real task will be given to you once you finish.",
+            "Welcome to our study! In this tutorial, you'll get to try out the tools before starting the real task. Nothing you do here is recorded, and you'll proceed to the main study once you're done.",
+        },
+      },
+      {
+        popover: {
+          title: "Your Goal",
+          description:
+            "Imagine you're a first-time homebuyer deciding between a single-family home and a duplex. You'll explore the data and pick 3 homes worth touring in person. This will be similar to the real task.",
         },
       },
       {
         popover: {
           title: "About the Sample Data",
           description:
-            "This practice round uses a small sample of home sale records, things like lot size, number of rooms, and sale price.",
+            "This practice round uses a small sample of home sale records, including details like home type, lot size, and sale price.",
         },
       },
       {
         popover: {
-          title: "Purpose of This Section",
+          title: "Stage 1: Understanding Your Beliefs",
           description:
-            "This section will ask you to estimate how common different traits are among two groups of homes: those with central air conditioning, and those without, at the same time, side by side.",
+            "This stage will ask you to estimate how common different traits are among two groups of homes: single-family homes and duplexes. Follow the instructions and express your beliefs by allocating the tokens into bins.",
         },
       },
       {
@@ -256,7 +252,7 @@ export function startElicitationIntro(): void {
         popover: {
           title: "Instructions",
           description:
-            "Before the real page, here's a practice round using one sample question. This text at the top always tells you what to do at each step, read it as you go. Teal is for one group, orange for the other; each bin stacks both, teal at the bottom.",
+            "Before the real page, here's a practice round using one sample question. This text at the top always tells you what to do at each step. Read it as you go. Teal is for one group, orange for the other.",
           side: "bottom",
         },
       },
@@ -264,7 +260,7 @@ export function startElicitationIntro(): void {
         element: ".histogram-box",
         popover: {
           title: "Placing Tokens",
-          description: 'Click a slot to jump straight to that count, or use the "+"/"−" buttons: teal for the first group, orange for the second. Each has its own 30 tokens. Try it now.',
+          description: 'Click a slot to jump straight to that count, or use the "+"/"−" buttons to manually increment the tokens in each bin. Try it now.',
           side: "top",
           showButtons: ["previous"],
         },
@@ -276,7 +272,7 @@ export function startElicitationIntro(): void {
         element: ".preset-bar",
         popover: {
           title: "Additional Controls",
-          description: 'Each distribution has its own "Uniform" (split its tokens evenly across all ranges) and "Reset" (clear it and start over) buttons.',
+          description: 'Each distribution has its own "Uniform" distribution option (split its tokens evenly across all ranges) and "Reset" (clear it and start over) buttons.',
           side: "bottom",
         },
       },
@@ -284,7 +280,7 @@ export function startElicitationIntro(): void {
         element: ".modal-balls-counter",
         popover: {
           title: "Remaining Tokens",
-          description: "Each distribution shows how many of its own tokens are left. You must place all of both before continuing.",
+          description: "Each distribution shows how many of its own tokens are left. You must place all tokens for both groups before continuing.",
           side: "bottom",
         },
       },
@@ -301,9 +297,9 @@ export function startElicitationIntro(): void {
 
   tour.drive();
 
-  // Step 4: don't allow "Next" until they place at least one token; explain
+  // Step 5: don't allow "Next" until they place at least one token; explain
   // what that placement means before letting them continue.
-  armTokenPlacementExplanation(tour, 4, ".histogram-box");
+  armTokenPlacementExplanation(tour, 5, ".histogram-box");
 
   // The confidence slider only exists once the participant has for real
   // placed all 60 tokens (both distributions) and clicked "Save & continue"
@@ -320,6 +316,14 @@ function watchForConfidenceStep(): void {
     const slider = document.querySelector(".confidence-slider");
     if (!slider) return;
     observer.disconnect();
+    // Read the attribute name out of the modal's own confidence-step
+    // instruction text (it's already there, wrapped in <strong>) so this
+    // matches the modal's own wording exactly. Can't read it off the modal
+    // title here like armTokenPlacementExplanation does -- by the time the
+    // slider exists, confidenceStep is already true, so the title has
+    // switched to the generic "How confident are you?" with no attribute
+    // name in it anymore.
+    const attrName = document.querySelector(".modal-instruction strong")?.textContent?.trim() || "";
     const confidenceTour = driver({
       allowClose: false,
       showButtons: ["next"],
@@ -329,7 +333,7 @@ function watchForConfidenceStep(): void {
           element: ".confidence-slider",
           popover: {
             title: "How Confident Are You?",
-            description: "Drag the slider to say how confident you are in the tokens you just placed, then continue.",
+            description: `Drag the slider to say how confident you are in the two ${attrName} distributions you just created, then continue.`,
             side: "top",
           },
         },
@@ -365,7 +369,7 @@ function revealNextWhenBothAxesSelected(tour: ReturnType<typeof driver>, stepInd
     const nextBtn = document.querySelector(".driver-popover-next-btn") as HTMLElement | null;
     if (!nextBtn) return;
     // Also hides it again if a value gets cleared after being revealed --
-    // e.g. via ng-select's "clear" (x) button -- not just a one-way reveal.
+    // e.g. via "Remove all encodings" -- not just a one-way reveal.
     nextBtn.style.display = bothSelected() ? "block" : "none";
   };
   const observer = new MutationObserver(reveal);
@@ -373,125 +377,194 @@ function revealNextWhenBothAxesSelected(tour: ReturnType<typeof driver>, stepInd
 }
 
 /**
+ * Reveals "Next" only once the participant has actually changed any one
+ * filter value (categorical or continuous), not just expanded a filter
+ * panel. Checks dataset.filterChanged specifically -- attributeInteracted
+ * is NOT enough here, since onChangeAttribute (axis selection, required by
+ * the earlier Encoding step) increments the very same counter, which made
+ * this reveal trivially true before the participant ever touched a filter.
+ * `dataset` lives on the Angular component rather than the DOM, so poll it
+ * instead of observing DOM mutations (there's no reliable DOM signal here:
+ * ng-multiselect-dropdown and nouislider don't dispatch native events that
+ * bubble to a delegated listener).
+ */
+function revealNextWhenFiltered(tour: ReturnType<typeof driver>, stepIndex: number, dataset: any): void {
+  if (!dataset) return;
+  const check = () => {
+    if (tour.getActiveIndex() !== stepIndex) return;
+    const nextBtn = document.querySelector(".driver-popover-next-btn") as HTMLElement | null;
+    if (nextBtn) nextBtn.style.display = dataset.filterChanged ? "block" : "none";
+  };
+  setInterval(check, 200);
+}
+
+/**
  * Starts the driver.js tour over the live CONTROL DOM. Should be called
  * once, after the dummy dataset has loaded, the chart has rendered, and the
- * prior-belief elicitation modal (phase 1) has closed.
+ * prior-belief elicitation modal (phase 1) has closed. `dataset` is the
+ * tutorial's live appConfig entry (component.ts passes
+ * `this.appConfig[this.global.appMode]`), needed to gate the filters step
+ * on real filter interactions rather than just a panel expand. `isLlm` adds
+ * one extra step highlighting the LLM intervention panel -- component.ts's
+ * `llmIntervention` getter derives its content live from whatever point is
+ * currently hovered (real dwell-bias-triggered ones never fire against the
+ * dummy dataset), swapping in a real suggestion once a below-median-price
+ * home is hovered, so the panel is already visible for the whole tutorial
+ * by the time this step runs, not just conjured up for this one step.
  */
-export function startTutorial(): void {
+export function startTutorial(dataset?: any, isLlm: boolean = false): void {
+  const steps: any[] = [];
+  const stepIndex: Record<string, number> = {};
+  const addStep = (key: string, step: any) => {
+    stepIndex[key] = steps.length;
+    steps.push(step);
+  };
+
+  addStep("intro", {
+    popover: {
+      title: "Stage 2: Interface Walkthrough",
+      description:
+        "This is the exploration user interface, using the same small sample of home sale records. Try each step yourself as you go. Click Next to begin.",
+    },
+  });
+
+  addStep("encoding", {
+    element: "#tutorial-encoding-panel",
+    popover: {
+      title: "Encoding",
+      description: "Choose what's shown on the X and Y axis. Pick a value in both dropdowns to continue.",
+      side: "right",
+      showButtons: ["previous"],
+    },
+    // If the participant goes "Previous" back into this step after
+    // already picking both axes, don't make them reselect just to see
+    // "Next" again -- reveal it immediately since the requirement is
+    // already met.
+    onHighlighted: () => {
+      const panel = document.querySelector("#tutorial-encoding-panel");
+      const bothSelected =
+        !!panel?.querySelector('ng-select[name="xVarSelect"] .ng-value') &&
+        !!panel?.querySelector('ng-select[name="yVarSelect"] .ng-value');
+      if (!bothSelected) return;
+      const nextBtn = document.querySelector(".driver-popover-next-btn") as HTMLElement | null;
+      if (nextBtn) nextBtn.style.display = "block";
+    },
+  });
+
+  addStep("visualization", {
+    element: "#plot_container",
+    popover: {
+      title: "Visualization",
+      description: "Each point is a home. Hover over one to see its details.",
+      side: "top",
+      showButtons: ["previous"],
+    },
+  });
+
+  addStep("details", {
+    // Highlights the shared wrapper around BOTH #plot_container and
+    // #tutorial-details-panel (rather than just one or the other) so
+    // both are visibly spotlighted together. Descendants of the active
+    // element keep pointer-events, so the plot stays hoverable too.
+    element: "#tutorial-vis-column",
+    popover: {
+      title: "Details",
+      description: "This is the information regarding the home you are hovering over. Hovering (or selecting) a point always shows its full details here.",
+      // driver.js's automatic side/align placement keeps landing this
+      // popover mid-screen against such a tall highlighted element, so
+      // position it manually against the details panel's own actual
+      // bounding box instead of trusting the side/align heuristics.
+      // onPopoverRender fires BEFORE driver.js's own internal positioning
+      // pass runs (confirmed in driver.js's source: it calls this hook,
+      // then immediately repositions the popover afterward) — a deferred
+      // setTimeout(0) runs after that pass completes, so this doesn't get
+      // silently overwritten.
+      onPopoverRender: (popoverDom: { wrapper: HTMLElement }) => {
+        setTimeout(() => {
+          const detailsPanel = document.querySelector("#tutorial-details-panel");
+          if (!detailsPanel) return;
+          const rect = detailsPanel.getBoundingClientRect();
+          popoverDom.wrapper.style.position = "fixed";
+          popoverDom.wrapper.style.top = `${rect.top}px`;
+          popoverDom.wrapper.style.left = `${rect.right + 12}px`;
+          popoverDom.wrapper.style.right = "auto";
+          popoverDom.wrapper.style.bottom = "auto";
+        }, 0);
+      },
+    },
+  });
+
+  addStep("filters", {
+    element: "#tutorial-filters-panel",
+    popover: {
+      title: "Filters",
+      description:
+        "Click an attribute name below to expand its filter options. Try adjusting a filter to continue.",
+      side: "right",
+      showButtons: ["previous"],
+    },
+  });
+
+  if (isLlm) {
+    addStep("llm", {
+      // Stays highlighted for this whole step -- component.ts already
+      // populated a canned llmIntervention as soon as the tutorial+LLM
+      // combo was detected (before this tour even starts), so the panel
+      // has been visible the entire time, not just conjured up here.
+      element: ".llm-panel",
+      popover: {
+        title: "Suggestions Panel",
+        description:
+          "Based on what you've been looking at, this panel may occasionally surface a suggestion for something else worth exploring. Clicking a suggestion filters the data to match it.",
+        side: "left",
+      },
+    });
+  }
+
+  addStep("stage3", {
+    popover: {
+      title: "Stage 3: Selecting Data Points",
+      description: "Now it's time to pick the homes you'd want to tour. Click Next to continue.",
+    },
+  });
+
+  addStep("selecting", {
+    element: "#plot_container",
+    popover: {
+      title: "Selecting a Home",
+      description: "Now click on a point to select it. This is different from hovering, as the main task will ask you to select data points to complete it. Clicking a selected point again removes it from your list.",
+      side: "top",
+      showButtons: ["previous"],
+    },
+  });
+
+  addStep("finish", {
+    element: ".selected-subjects-panel",
+    popover: {
+      title: "Finish up",
+      description:
+        'Select the 3 homes you\'d want to tour, then click "Submit Task" below. That completes the tutorial and takes you to the real task.',
+      side: "left",
+    },
+  });
+
   const tour = driver({
     showProgress: true,
     allowClose: false,
     showButtons: ["next", "previous"],
     overlayOpacity: 0.55,
-    steps: [
-      {
-        popover: {
-          title: "Quick walkthrough",
-          description:
-            "This is the exploration user interface, using the same small sample of home sale records. Try each step yourself as you go, click Next to begin.",
-        },
-      },
-      {
-        element: "#tutorial-encoding-panel",
-        popover: {
-          title: "Encoding",
-          description: "Choose what's shown on the X and Y axis. Pick a value in both dropdowns to continue.",
-          side: "right",
-          showButtons: ["previous"],
-        },
-        // If the participant goes "Previous" back into this step after
-        // already picking both axes, don't make them reselect just to see
-        // "Next" again -- reveal it immediately since the requirement is
-        // already met.
-        onHighlighted: () => {
-          const panel = document.querySelector("#tutorial-encoding-panel");
-          const bothSelected =
-            !!panel?.querySelector('ng-select[name="xVarSelect"] .ng-value') &&
-            !!panel?.querySelector('ng-select[name="yVarSelect"] .ng-value');
-          if (!bothSelected) return;
-          const nextBtn = document.querySelector(".driver-popover-next-btn") as HTMLElement | null;
-          if (nextBtn) nextBtn.style.display = "block";
-        },
-      },
-      {
-        element: "#plot_container",
-        popover: {
-          title: "Visualization",
-          description: "Each point is a home. Hover over one to see its details.",
-          side: "top",
-          showButtons: ["previous"],
-        },
-      },
-      {
-        // Highlights the shared wrapper around BOTH #plot_container and
-        // #tutorial-details-panel (rather than just one or the other) so
-        // both are visibly spotlighted together. Descendants of the active
-        // element keep pointer-events, so the plot stays hoverable too.
-        element: "#tutorial-vis-column",
-        popover: {
-          title: "Details",
-          description: "This is the information regarding the home you are hovering over. Hovering (or selecting) a point always shows its full details here.",
-          // driver.js's automatic side/align placement keeps landing this
-          // popover mid-screen against such a tall highlighted element, so
-          // position it manually against the details panel's own actual
-          // bounding box instead of trusting the side/align heuristics.
-          // onPopoverRender fires BEFORE driver.js's own internal positioning
-          // pass runs (confirmed in driver.js's source: it calls this hook,
-          // then immediately repositions the popover afterward) — a deferred
-          // setTimeout(0) runs after that pass completes, so this doesn't get
-          // silently overwritten.
-          onPopoverRender: (popoverDom) => {
-            setTimeout(() => {
-              const detailsPanel = document.querySelector("#tutorial-details-panel");
-              if (!detailsPanel) return;
-              const rect = detailsPanel.getBoundingClientRect();
-              popoverDom.wrapper.style.position = "fixed";
-              popoverDom.wrapper.style.top = `${rect.top}px`;
-              popoverDom.wrapper.style.left = `${rect.right + 12}px`;
-              popoverDom.wrapper.style.right = "auto";
-              popoverDom.wrapper.style.bottom = "auto";
-            }, 0);
-          },
-        },
-      },
-      {
-        element: "#tutorial-filters-panel",
-        popover: {
-          title: "Filters",
-          description: "Click an attribute name below to expand its filter options.",
-          side: "right",
-          showButtons: ["previous"],
-        },
-      },
-      {
-        element: "#plot_container",
-        popover: {
-          title: "Selecting a Home",
-          description: "Now click on a point to select it. This is different from hovering, as the main task will ask you to select data points to complete it. Clicking a selected point again removes it from your list.",
-          side: "top",
-          showButtons: ["previous"],
-        },
-      },
-      {
-        element: ".selected-subjects-panel",
-        popover: {
-          title: "Finish up",
-          description:
-            'Select 3 homes total, then click "Submit Task" below. That completes the tutorial and takes you to the real task.',
-          side: "left",
-        },
-      },
-    ],
+    steps,
   });
 
   tour.drive();
 
-  // Step 1: don't allow "Next" until both X and Y axis are actually selected.
-  revealNextWhenBothAxesSelected(tour, 1);
-  // Step 2: don't allow "Next" until they hover a data point.
-  advanceOnHoverDwell(tour, 2, "#plot_container", 400, ".post");
-  // Step 4: don't allow "Next" until the participant actually expands a filter.
-  revealNextOnEvent(tour, 4, "#tutorial-filters-panel");
-  // Step 5: don't allow "Next" until they click a data point to select it.
-  advanceOnEvent(tour, 5, "#plot_container", "click", ".post");
+  // Don't allow "Next" until both X and Y axis are actually selected.
+  revealNextWhenBothAxesSelected(tour, stepIndex["encoding"]);
+  // Don't allow "Next" until they hover a data point.
+  advanceOnHoverDwell(tour, stepIndex["visualization"], "#plot_container", 400, ".post");
+  // Don't allow "Next" until the participant actually filters one
+  // categorical attribute and one continuous attribute.
+  revealNextWhenFiltered(tour, stepIndex["filters"], dataset);
+  // Don't allow "Next" until they click a data point to select it.
+  advanceOnEvent(tour, stepIndex["selecting"], "#plot_container", "click", ".post");
 }

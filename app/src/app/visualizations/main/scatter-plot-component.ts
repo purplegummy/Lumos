@@ -325,7 +325,17 @@ export class ScatterPlot {
       .attr("transform", (d) => translatePoints(d, context, xIsQ, yIsQ))
       .attr("r", 6)
       .style("fill", (d) => {
-        if (context.global.appLayout === 'CONTROL') return "white";
+        if (context.global.appLayout === 'CONTROL') {
+          // A redraw can land mid-hover (e.g. the server's response to the
+          // mouseover interaction message round-trips back and triggers
+          // updateVis() while the cursor is still on the point) -- without
+          // checking hoveredObject here, that redraw would blindly repaint
+          // every point white and silently cancel the mouseover handler's
+          // highlight, even though the mouse never left the point.
+          const hovered = dataset["hoveredObject"];
+          const isHovered = hovered && hovered[dataset["primaryKey"]] === d[dataset["primaryKey"]];
+          return isHovered ? "#AED6F1" : "white";
+        }
         // use dict OBJECT to update source data by reference!
         let dataPoint = originalDatasetDict[d[dataset["primaryKey"]]];
         context.utilsService.colorDataPoint(context, dataPoint, prepared);
@@ -340,9 +350,13 @@ export class ScatterPlot {
         const isAdmin = context.global.appType === "ADMIN";
         if (isControl) {
           const selectedCount = Object.keys(dataset["selectedObjects"]).length;
+          // Tutorial only requires 3 selections (vs. the real task's 10) --
+          // this was hardcoded to 10 regardless of context.global.isTutorial,
+          // so the tutorial let participants keep selecting well past 3.
+          const selectionCap = context.global.isTutorial ? 3 : 10;
           if (d["selected"]) {
             context.utilsService.clickRemoveItem(context, event, d);
-          } else if (selectedCount < 10) {
+          } else if (selectedCount < selectionCap) {
             context.utilsService.clickAddItem(context, event, d);
           }
         } else if (isAdmin) {
