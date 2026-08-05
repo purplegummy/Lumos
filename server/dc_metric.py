@@ -594,7 +594,7 @@ def dwell_bias_percentile(detailed_map, dwell, n_trials=1000, rng=None):
         return None
     total_dwell_ms = sum(dwell.values())
     null = sample_null_dwell_bias(detailed_map, k, total_dwell_ms, n_trials, rng)
-    return float((null < real_value).mean())
+    return float((null <= real_value).mean())
 
 
 def dwell_percentile_ready(bias_logs, connected_at_ms, now_ms):
@@ -669,4 +669,4 @@ def selection_bias_percentile(dc_map, selected_ids, n_trials=1000, rng=None):
     if k == 0:
         return None
     null = sample_null_selection_bias(dc_map, k, n_trials, rng)
-    return float((null < real_value).mean())
+    return float((null <= real_value).mean())
