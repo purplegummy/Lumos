@@ -1,6 +1,6 @@
 """Trigger logic for the LLM intervention condition.
 
-Two responsibilities live here, deliberately kept small and swappable so the
+Three responsibilities live here, deliberately kept small and swappable so the
 real statistical test can drop in later without touching the socket layer:
 
 1. derive_attended_direction -- implemented for real. Given the teens, the
@@ -13,6 +13,9 @@ real statistical test can drop in later without touching the socket layer:
    Lester and is not committed upstream yet. For now this is a raw-threshold
    gate plus the three session gates plus a cooldown, structured so swapping in
    the permutation test replaces only this one function body.
+
+3. evaluate_summary_trigger -- the same STUB shape for the pre-submission
+   summary, scored on the final selection rather than on dwell.
 
 This module reads from dc_metric / bias_util only; it does not modify them.
 """
@@ -37,6 +40,15 @@ MIN_MINUTES_IN_TASK = 1.0       # wall-clock minutes since the participant conne
 
 # Interventions must not fire repeatedly while someone sits above threshold.
 COOLDOWN_SECONDS = 90.0
+
+# --------------------------------------------------------------------------- #
+# Summary gate -- the pre-submission reflection, scored on the participant's
+# FINAL SELECTION rather than on live dwell.
+# --------------------------------------------------------------------------- #
+# TODO(lester): same permutation test as above applies here, resampling the
+# selection instead of the dwell weights.
+SELECTION_BIAS_THRESHOLD = 0.15  # observed selection-level bias must exceed this
+MIN_SELECTIONS = 5               # too few picks makes the mean DC meaningless
 
 # Ordinal encoding for the one categorical belief variable, so a "direction"
 # (more vs. less difficulty) can be derived the same way as for numeric ones.
@@ -178,3 +190,35 @@ def should_trigger(client_record, dwell_metrics):
     """
     fired, _reason = evaluate_trigger(client_record, dwell_metrics)
     return fired
+
+
+def evaluate_summary_trigger(selection_metrics):
+    """Decide whether to show the pre-submission summary, AND say why not. STUB.
+
+    Sibling of evaluate_trigger with the same (fired, reason) contract, scored on
+    the participant's final selection instead of their dwell:
+
+        "ok" | "gate_min_selections" | "below_threshold"
+
+    Deliberately has NO cooldown and no time-in-task gate: this is asked at the
+    moment the participant tries to submit, so "too soon after the last one" and
+    "not long enough in the task" cannot apply. Note "once per session" is
+    enforced CLIENT-side (llmSummaryRequested in main-activity/component.ts);
+    this handler does not guard against repeats.
+
+    The count is checked BEFORE the threshold: under MIN_SELECTIONS the mean DC is
+    dominated by which few teens happened to be picked, so "below_threshold" would
+    name the wrong cause.
+
+    selection_metrics: the dict from llm_intervention.selection_metrics, i.e.
+                   {"selection_bias", "selection_bias_v", "n_selected"}.
+    """
+    observed = selection_metrics["selection_bias"]
+    n_selected = selection_metrics.get("n_selected", 0)
+    if n_selected < MIN_SELECTIONS:
+        return False, f"gate_min_selections ({n_selected} < {MIN_SELECTIONS})"
+
+    if observed <= SELECTION_BIAS_THRESHOLD:
+        return False, f"below_threshold ({observed:+.4f} <= {SELECTION_BIAS_THRESHOLD})"
+
+    return True, "ok"

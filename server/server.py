@@ -28,6 +28,11 @@ CLIENTS = {}  # entire data map of all client data
 # pid -> last logged "not triggered" gate code. Keeps the LLM skip log to one
 # line per gate change instead of one per interaction.
 LLM_LAST_SKIP = {}
+# The three LLM interface versions, as app_type values. Each condition shows only
+# its own component(s), so the two features gate on membership rather than on a
+# single "LLM" equality check.
+LLM_REALTIME_TYPES = {"LLM", "LLM_BOTH"}
+LLM_SUMMARY_TYPES = {"LLM_SUMMARY", "LLM_BOTH"}
 CLIENT_PARTICIPANT_ID_SOCKET_ID_MAPPING = {}
 CLIENT_SOCKET_ID_PARTICIPANT_MAPPING = {}
 COMPUTE_BIAS_FOR_TYPES = [
@@ -239,6 +244,74 @@ async def on_task_submitted(sid, data):
         print(f"Task submitted for {pid}: {code}")
 
 
+@SIO.on('on_llm_summary_request')
+async def on_llm_summary_request(sid, data=None):
+    """Generate the pre-submission summary for the participant's final selection.
+
+    Unlike the realtime intervention, which fires off the back of an interaction
+    the participant is not waiting on, this one blocks their submit button until
+    it replies. So every path either replies here or hands off to
+    generate_summary_and_emit, which replies on its success AND failure paths. A
+    silent path would leave them unable to finish the study, hence the outer
+    try/except -- this is the handler boundary, where this codebase already puts
+    its guards. `data` is defaulted for the same reason: socket.io raises the
+    missing-argument TypeError OUTSIDE this function, where nothing can reply.
+
+    Skips reply on `sid` directly rather than through the pid -> sid map, because
+    no time passes; only the generated summary, seconds later, needs the map.
+    """
+    pid = None
+    try:
+        pid = data.get("participantId")
+        app_type = data.get("appType")
+        selected = data.get("selected_subjects", [])
+
+        if app_type not in LLM_SUMMARY_TYPES:
+            print(f"[LLM] {pid}: summary skipped (app_type={app_type!r})", flush=True)
+            await llm_intervention.emit_summary_skip(
+                SIO, sid, "not_summary_condition", pid)
+            return
+
+        client_record = CLIENTS.get(pid)
+        detailed = client_record.get("dc_map_detailed") if client_record else None
+        if not detailed:
+            # No committed priors means no DC map, so there is nothing to score the
+            # selection against. Same absent-vs-error distinction as on_interaction.
+            print(f"[LLM] {pid}: summary skipped (no dc_map)", flush=True)
+            await llm_intervention.emit_summary_skip(SIO, sid, "no_dc_map", pid)
+            return
+
+        try:
+            selection = llm_intervention.selection_metrics(detailed, selected)
+        except Exception as e:
+            # selection_metrics inherits dc_metric's fail-loud raise on an unknown
+            # id. Guard here, exactly as on_interaction does for the dwell metrics.
+            print(f"[LLM] {pid}: summary metrics failed: {e}", flush=True)
+            await llm_intervention.emit_summary_skip(SIO, sid, "metrics_failed", pid)
+            return
+
+        fired, reason = llm_trigger.evaluate_summary_trigger(selection)
+        # Reply BEFORE logging: a formatting error in the log line must not be
+        # what stops the participant from ever hearing back.
+        if not fired:
+            await llm_intervention.emit_summary_skip(
+                SIO, sid, reason.split(" ")[0], pid)
+        print(f"[LLM] {pid}: summary {'triggered' if fired else 'not triggered'} "
+              f"({reason}, selection_bias={selection['selection_bias']:+.4f}, "
+              f"n_selected={selection['n_selected']})", flush=True)
+        if not fired:
+            return
+
+        teens = bias.DATA_MAP.get(data.get("appMode"), {}).get("data", {})
+        SIO.start_background_task(
+            llm_intervention.generate_summary_and_emit,
+            SIO, CLIENT_PARTICIPANT_ID_SOCKET_ID_MAPPING, pid,
+            client_record, selection, teens, selected)
+    except Exception as e:
+        print(f"[LLM] {pid}: summary handler failed: {e}", flush=True)
+        await llm_intervention.emit_summary_skip(SIO, sid, "handler_error", pid)
+
+
 @SIO.event
 async def on_interaction(sid, data):
     app_mode = data["appMode"]  # The dataset that is being used, e.g. cars.csv
@@ -328,13 +401,13 @@ async def on_interaction(sid, data):
     await SIO.emit("interaction_response", response, room=sid)
     firebase_logger.save_logs(pid, [response])
 
-    # --- LLM intervention (condition: appType == "LLM") -----------------------
+    # --- LLM intervention (realtime versions only) ----------------------------
     # Runs AFTER the interaction response has already been emitted above, so the
     # ~4-6s Claude call is off the critical path. Fired as a background task that
     # emits a SEPARATE "llm_intervention" event on completion; never inlined into
     # output_data. Guarded: a broken LLM path must never break an interaction.
     _out = response.get("output_data")
-    if app_type == "LLM" and _out and _out.get("dwell_bias"):
+    if app_type in LLM_REALTIME_TYPES and _out and _out.get("dwell_bias"):
         try:
             client_record = CLIENTS[pid]
             teens = bias.DATA_MAP.get(app_mode, {}).get("data", {})

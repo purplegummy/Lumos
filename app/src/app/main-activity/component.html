@@ -1016,6 +1016,35 @@
     (closed)="onPriorModalClosed()"
   ></app-elicitation-modal>
 
+  <!-- Pre-submission summary (LLM_SUMMARY / LLM_BOTH). Stands in for the confirm
+       dialog below on the first submit; both are never open at once. -->
+  <div *ngIf="llmSummaryLoading || llmSummary" class="confirm-modal-backdrop">
+    <div class="confirm-modal-panel llm-summary-panel">
+      <div class="confirm-modal-title">Before you submit</div>
+
+      <!-- No actions while generating: disabled buttons read as broken. This
+           state always ends because requestLlmSummary schedules a timer before
+           it sends anything. -->
+      <div class="confirm-modal-body" *ngIf="llmSummaryLoading">Taking a look at the teens you picked...</div>
+
+      <ng-container *ngIf="llmSummary">
+        <div class="confirm-modal-body">{{llmSummary.awareness_summary}}</div>
+        <div class="llm-summary-transition">{{llmSummary.transition}}</div>
+
+        <div class="llm-theme" *ngFor="let theme of llmSummary.recommended_themes">
+          <div class="llm-theme-title">{{theme.title}}</div>
+          <div class="llm-theme-description">{{theme.description}}</div>
+          <button class="btn btn-outline-secondary btn-sm" (click)="reviseWithTheme(theme)">Show me these →</button>
+        </div>
+
+        <div class="confirm-modal-actions">
+          <button class="btn btn-light btn-sm" (click)="llmSummary = null">Go back and revise</button>
+          <button class="btn btn-primary btn-sm" (click)="submitTask()">Submit anyway</button>
+        </div>
+      </ng-container>
+    </div>
+  </div>
+
   <!-- Submit confirmation -->
   <div *ngIf="showSubmitConfirm" class="confirm-modal-backdrop">
     <div class="confirm-modal-panel">

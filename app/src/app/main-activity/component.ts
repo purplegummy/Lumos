@@ -30,6 +30,11 @@ window.addEventListener("beforeunload", function (e) {
 // This is loaded as an external script not using npm, hence this step.
 declare var vegaEmbed: any;
 
+// Last resort for a reply that never arrives. The server bounds its own
+// generation well under this (llm_intervention.GENERATION_TIMEOUT_SECONDS), so
+// hitting this means the socket dropped, not that the model was slow.
+const LLM_SUMMARY_TIMEOUT_MS = 25000;
+
 @Component({
   selector: "main-activity",
   templateUrl: "./component.html",
@@ -57,6 +62,10 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   plotGroup: any;
   showPriorModal = false;
   llmIntervention: any = null;
+  llmSummary: any = null;
+  llmSummaryLoading = false;
+  private llmSummaryRequested = false;
+  private llmSummaryTimer: any = null;
   // TEMP DEBUG: latest metrics from output_data, surfaced by the Logs panel.
   latestMetrics: any = null;
   showLogsPanel: boolean = false;
@@ -69,10 +78,18 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     return this.global.isTutorial ? 3 : 10;
   }
 
-  // appType, not appLayout: ?type=LLM sets appType to "LLM" but keeps the layout
-  // on CONTROL, so an appLayout check here would never be true.
+  // appType, not appLayout: the LLM conditions set appType but keep the layout on
+  // CONTROL, so an appLayout check here would never be true.
+  get llmRealtimeEnabled(): boolean {
+    return this.global.appType === "LLM" || this.global.appType === "LLM_BOTH";
+  }
+
+  get llmSummaryEnabled(): boolean {
+    return this.global.appType === "LLM_SUMMARY" || this.global.appType === "LLM_BOTH";
+  }
+
   get showLlmPanel(): boolean {
-    return this.global.appType === "LLM" && this.llmIntervention != null;
+    return this.llmRealtimeEnabled && this.llmIntervention != null;
   }
 
   // Phase 1 (prior belief elicitation) must fully finish before phase 2 (the
@@ -114,14 +131,20 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
         this.global.appLevel = params["level"];
       }
       const typeAliases: Record<string, string> = { F: "CONTROL" };
-      // "LLM" is a backend-only condition: appType is sent to the server so the
+      // The LLM conditions are backend-only: appType is sent to the server so the
       // intervention can run, while appLayout stays CONTROL so none of the
-      // awareness/trace panels render. Without that split the LLM condition
-      // would be LLM+AWARENESS and its effect could never be isolated.
-      const typeToLayout: Record<string, string> = { LLM: "CONTROL" };
+      // awareness/trace panels render. Without that split the LLM conditions
+      // would be LLM+AWARENESS and their effect could never be isolated.
+      // LLM = realtime only, LLM_SUMMARY = pre-submission summary only,
+      // LLM_BOTH = both.
+      const typeToLayout: Record<string, string> = {
+        LLM: "CONTROL",
+        LLM_SUMMARY: "CONTROL",
+        LLM_BOTH: "CONTROL",
+      };
       const rawType = params["type"];
       const resolvedType = typeAliases[rawType] ?? rawType;
-      const validTypes = ["CONTROL", "AWARENESS", "ADMIN", "LLM"];
+      const validTypes = ["CONTROL", "AWARENESS", "ADMIN", "LLM", "LLM_SUMMARY", "LLM_BOTH"];
       if (rawType && validTypes.includes(resolvedType)) {
         this.global.appLayout = typeToLayout[resolvedType] ?? resolvedType;
         this.global.appType = resolvedType;
@@ -180,7 +203,55 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   }
 
   confirmSubmit() {
+    // The summary replaces the confirm dialog the first time only. Re-showing it
+    // after a revision would let the participant loop between reflecting and
+    // revising with no way to finish.
+    if (this.llmSummaryEnabled && !this.llmSummaryRequested) {
+      this.requestLlmSummary();
+      return;
+    }
     this.showSubmitConfirm = true;
+  }
+
+  private requestLlmSummary() {
+    this.llmSummaryRequested = true;
+    this.llmSummaryLoading = true;
+    // Timer FIRST: the loading modal has no buttons, so if anything below threw
+    // the participant would be stuck in it with no way to submit at all.
+    // The server owns the real deadline (llm_intervention.GENERATION_TIMEOUT_SECONDS,
+    // well under this); this only covers a reply that never arrives.
+    this.llmSummaryTimer = setTimeout(() => this.onLlmSummary(null), LLM_SUMMARY_TIMEOUT_MS);
+    this.chatService.requestLlmSummary({
+      participantId: this.global['participantId'],
+      participantIdSource: this.global['participantIdSource'],
+      appMode: this.global.appMode,
+      appType: this.global.appType,
+      appLevel: this.global.appLevel,
+      selected_subjects: Object.keys(this.appConfig[this.global.appMode]['selectedObjects']),
+    });
+  }
+
+  onLlmSummary(obj) {
+    if (!this.llmSummaryLoading) return; // a late reply we already gave up on
+    clearTimeout(this.llmSummaryTimer);
+    this.llmSummaryLoading = false;
+    // Nothing to show (gate not met, no dc_map, generation failed) carries a
+    // reason instead of themes; fall through to the usual confirm dialog.
+    if (obj && obj['recommended_themes']) {
+      this.llmSummary = obj;
+    } else {
+      // Only a summary the participant actually SAW closes the door. Leaving the
+      // flag set here would let one transient failure drop them to a de-facto
+      // CONTROL session for the rest of the task.
+      this.llmSummaryRequested = false;
+      this.showSubmitConfirm = true;
+    }
+  }
+
+  /** Apply a summary theme's filters and step back into the task to revise. */
+  reviseWithTheme(theme): void {
+    this.applyThemeFilter(theme);
+    this.llmSummary = null;
   }
 
   cancelSubmit() {
@@ -562,6 +633,10 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
 
       context.chatService.getLlmIntervention().subscribe((obj) => {
         context.llmIntervention = obj;
+      });
+
+      context.chatService.getLlmSummary().subscribe((obj) => {
+        context.onLlmSummary(obj);
       });
 
       context.showPriorModal = true;
