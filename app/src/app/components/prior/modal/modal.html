@@ -1,5 +1,5 @@
 <div class="modal-backdrop">
-  <div class="modal-panel">
+  <div class="modal-panel" [class.full-height]="!done && !confidenceStep">
 
     <!-- header -->
     <div class="modal-header">
@@ -23,12 +23,16 @@
             {{ cleanAttr(selectedAttribute) }}
           </div>
           <div class="modal-instruction">
-            Below are ranges of <strong>{{ cleanAttr(selectedAttribute) }}</strong>.
-            For each range, place tokens to show how common you think it is among these {{ subjectNounPlural }}:
+            Below are ranges of <strong>{{ cleanAttr(selectedAttribute) }}</strong>. For each range, place tokens to
+            show what you believe the distribution is between two groups:
             <span class="legend-dot legend-dot-a"></span> <strong>{{ labelFor('diagnosed') }}</strong> and
             <span class="legend-dot legend-dot-b"></span> <strong>{{ labelFor('not_diagnosed') }}</strong>.
-            You have <strong>{{ binningService.ballCount }} tokens</strong> for each group. More tokens mean more common.
-            You must place all {{ binningService.ballCount }} of each.
+            You have <strong>{{ binningService.ballCount }} tokens</strong> to allocate for each group. More tokens
+            means more common. You must place all tokens to proceed.
+          </div>
+          <div class="modal-instruction-note" *ngIf="!isCategorical(selectedAttribute)">
+            Bin labels use the format [a,b), meaning the lower bound is included and the upper bound is not.
+            For example, [13,14) includes values from 13 up to, but not including, 14.
           </div>
         </div>
 
@@ -39,14 +43,12 @@
             How confident are you?
           </div>
           <div class="modal-instruction">
-            Rate your confidence in the distributions you just placed for
-            <strong>{{ cleanAttr(selectedAttribute) }}</strong>.
+            How confident are you in the two <strong>{{ cleanAttr(selectedAttribute) }}</strong> distributions you just created?
           </div>
         </div>
 
       </div>
 
-      <button class="modal-close" (click)="close()" [disabled]="!canClose" [title]="canClose ? '' : 'Complete all steps before closing'">✕</button>
     </div>
 
     <div class="modal-body">
@@ -58,21 +60,20 @@
       </div>
 
       <!-- balls and bins ui -->
-      <div *ngIf="!done && !confidenceStep">
+      <div class="distributions-wrap" *ngIf="!done && !confidenceStep">
 
         <!-- diagnosed (teal) distribution -->
         <div class="series-block">
           <div class="series-block-header">
-            <button class="series-toggle" (click)="toggleSeriesA()">
-              <i class="fa" [ngClass]="seriesACollapsed ? 'fa-chevron-right' : 'fa-chevron-down'"></i>
-              <span class="legend-dot legend-dot-a"></span> {{ labelFor('diagnosed') }}
-            </button>
+            <div class="condition-question condition-question-a">
+              Among {{ labelFor('diagnosed') }}, how common do you think each {{ attrCopy.rangeNoun }} is?
+            </div>
             <div class="modal-balls-counter counter-a" [class.complete]="remainingA === 0">
               <span class="modal-balls-count" [ngClass]="counterClassA">{{ remainingA }}</span>
               <span class="modal-balls-label">left</span>
             </div>
           </div>
-          <div *ngIf="!seriesACollapsed">
+          <div class="series-content">
             <div class="preset-bar">
               <button class="reset-link" (click)="setUniformA()">⊟ Uniform</button>
               <button class="reset-link" (click)="resetA()">↺ Reset</button>
@@ -83,6 +84,8 @@
                 [fixedBins]="currentFixedBins"
                 [initialCounts]="draftCountsA"
                 seriesColor="a"
+                [shape]="tokenShape"
+                [isCurrency]="selectedAttribute === 'Price'"
                 (countsChange)="onCountsAChange($event)"
               ></app-balls-into-bins>
             </div>
@@ -92,16 +95,15 @@
         <!-- not_diagnosed (orange) distribution -->
         <div class="series-block">
           <div class="series-block-header">
-            <button class="series-toggle" (click)="toggleSeriesB()">
-              <i class="fa" [ngClass]="seriesBCollapsed ? 'fa-chevron-right' : 'fa-chevron-down'"></i>
-              <span class="legend-dot legend-dot-b"></span> {{ labelFor('not_diagnosed') }}
-            </button>
+            <div class="condition-question condition-question-b">
+              Among {{ labelFor('not_diagnosed') }}, how common do you think each {{ attrCopy.rangeNoun }} is?
+            </div>
             <div class="modal-balls-counter counter-b" [class.complete]="remainingB === 0">
               <span class="modal-balls-count" [ngClass]="counterClassB">{{ remainingB }}</span>
               <span class="modal-balls-label">left</span>
             </div>
           </div>
-          <div *ngIf="!seriesBCollapsed">
+          <div class="series-content">
             <div class="preset-bar">
               <button class="reset-link" (click)="setUniformB()">⊟ Uniform</button>
               <button class="reset-link" (click)="resetB()">↺ Reset</button>
@@ -112,6 +114,8 @@
                 [fixedBins]="currentFixedBins"
                 [initialCounts]="draftCountsB"
                 seriesColor="b"
+                [shape]="tokenShape"
+                [isCurrency]="selectedAttribute === 'Price'"
                 (countsChange)="onCountsBChange($event)"
               ></app-balls-into-bins>
             </div>

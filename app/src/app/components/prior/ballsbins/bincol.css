@@ -1,41 +1,67 @@
+/* Same reasoning as bib.css's :host rule -- <app-bin-column> is a custom
+   element with no default height, so give it one explicitly rather than
+   relying on flex stretch through an unknown element implicitly. */
+:host {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+
 .bin-column {
   display: flex;
   flex-direction: column;
   align-items: center;
-  flex: 1;
-  min-width: 0;
+  width: 100%;
+  height: 100%;
 }
 
+/* Fills whatever height bib.css's outer .grid actually has (in turn set by
+   .histogram-box's real available space) -- each .cell below is flex:1 so
+   all 30 rows always divide that height exactly, with no JS pixel math and
+   no possibility of overflowing/scrolling. */
 .grid {
   display: flex;
   flex-direction: column;
   width: 100%;
+  flex: 1;
+  min-height: 0;
 }
 
 .cell {
   width: 100%;
-  height: 13px;
+  flex: 1;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
 }
 
-.cell::after {
-  content: '';
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
+.cell .dot {
+  width: 65%;
+  height: 100%;
+  border-radius: 0;
   background: #e0e0e0;
+  box-shadow: inset 0 0 0 1px #bbbbbb;
   flex-shrink: 0;
 }
 
-.cell.filled.cell-a::after {
+/* aspect-ratio, not a fixed width percentage, so it stays a true circle no
+   matter how tall the cell actually ends up (which varies with the flex-fill
+   sizing above, not a fixed pixel constant). */
+.cell .dot.circle {
+  width: auto;
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+
+.cell.filled.cell-a .dot {
   background: #2e8b7d;
   box-shadow: inset 0 0 0 1px #1a1a1a;
 }
 
-.cell.filled.cell-b::after {
+.cell.filled.cell-b .dot {
   background: #e2913f;
   box-shadow: inset 0 0 0 1px #1a1a1a;
 }
@@ -44,11 +70,11 @@
   cursor: pointer;
 }
 
-.cell.clickable:hover::after {
+.cell.clickable:hover .dot {
   opacity: 0.7;
 }
 
-.cell.unreachable::after {
+.cell.unreachable .dot {
   opacity: 0.25;
 }
 
@@ -60,6 +86,7 @@
   width: 100%;
   border-top: 2px solid #1a1a1a;
   margin-top: 4px;
+  flex-shrink: 0;
 }
 
 .controls {
@@ -67,6 +94,7 @@
   align-items: center;
   gap: 4px;
   margin-top: 6px;
+  flex-shrink: 0;
 }
 
 .controls button {
@@ -108,11 +136,12 @@
 .count-b { color: #e2913f; }
 
 .label {
-  font-size: 0.65rem;
+  font-size: 0.6rem;
   color: #666;
   margin-top: 4px;
   text-align: center;
   font-family: 'JetBrains Mono', monospace;
   white-space: nowrap;
   overflow: visible;
+  flex-shrink: 0;
 }

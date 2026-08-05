@@ -9,7 +9,7 @@ export class BinningService {
 
   readonly ballCount = BALL_COUNT;
 
-  computeBins(values: number[]): Bin[] {
+  computeBins(values: number[], isCurrency: boolean = false): Bin[] {
     const nums = values.map(Number);
     const rawMin = nums.reduce((a, b) => a < b ? a : b);
     const rawMax = nums.reduce((a, b) => a > b ? a : b);
@@ -18,9 +18,10 @@ export class BinningService {
     const allIntegers = nums.every(v => Number.isInteger(v));
     const range = rawMax - rawMin;
     if (allIntegers && range <= 10) {
-      return Array.from({ length: range + 1 }, (_, i) => {
+      const length = range + 1;
+      return Array.from({ length }, (_, i) => {
         const v = rawMin + i;
-        return { lo: v, hi: v + 1, label: `${v}-${v + 1}` };
+        return { lo: v, hi: v + 1, label: this.rangeLabel(v, v + 1, 1, isCurrency, i === length - 1) };
       });
     }
 
@@ -33,7 +34,7 @@ export class BinningService {
     return Array.from({ length: count }, (_, i) => {
       const lo = min + i * step;
       const hi = min + (i + 1) * step;
-      return { lo, hi, label: `${this.fmt(lo, step)}-${this.fmt(hi, step)}` };
+      return { lo, hi, label: this.rangeLabel(lo, hi, step, isCurrency, i === count - 1) };
     });
   }
 
@@ -60,10 +61,18 @@ export class BinningService {
     return Math.max(nice * magnitude, 1);
   }
 
-  private fmt(n: number, step: number): string {
-    if (step >= 10)  return n.toFixed(0);
-    if (step >= 1)   return n.toFixed(0);
-    if (step >= 0.1) return n.toFixed(1);
-    return n.toFixed(2);
+  private fmt(n: number, step: number, isCurrency: boolean = false): string {
+    const digits = step >= 1 ? 0 : step >= 0.1 ? 1 : 2;
+    const numStr = isCurrency ? n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits }) : n.toFixed(digits);
+    return isCurrency ? `$${numStr}` : numStr;
+  }
+
+  // Half-open interval notation: every bin includes its left edge and excludes
+  // its right edge ("[lo, hi)"), EXCEPT the very last bin in the set, which
+  // also includes its right edge ("[lo, hi]") since that edge is the max of
+  // the data -- otherwise the single largest value would fall outside every bin.
+  private rangeLabel(lo: number, hi: number, step: number, isCurrency: boolean, isLast: boolean): string {
+    const close = isLast ? ']' : ')';
+    return `[${this.fmt(lo, step, isCurrency)}, ${this.fmt(hi, step, isCurrency)}${close}`;
   }
 }
