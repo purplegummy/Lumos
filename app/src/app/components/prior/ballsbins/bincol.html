@@ -10,7 +10,9 @@
       [class.unreachable]="!isClickable(row)"
       (mousedown)="onMouseDown(row)"
       (mouseenter)="onMouseEnter(row)"
-    ></div>
+    >
+      <span class="dot" [class.circle]="shape === 'circle'"></span>
+    </div>
   </div>
 
   <div class="bin-floor"></div>

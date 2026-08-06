@@ -1,6 +1,7 @@
 // libraries
 import * as d3 from "d3";
 import $ from "jquery";
+import * as seedrandom from "seedrandom";
 // local
 import { DotPlotConfig } from "src/app/models/viz";
 import { sequentialColorRange, SessionPage } from "src/app/models/config";
@@ -161,8 +162,6 @@ export class DotPlot {
     );
 
     // Create scales and axes based on vis matrix
-    let buckets = [];
-    let binLabelDelim = " x "; // delimiter for getting axis titles from bin Label
     let xIsNA = dataset["xVar"] == null;
     let yIsNA = dataset["yVar"] == null;
     let xIsQ = context.utilsService.isMeasure(dataset, dataset["xVar"], "Q");
@@ -174,7 +173,7 @@ export class DotPlot {
 
     if (xIsQ || yIsQ || (xIsNA && yIsNA)) {
       // [Q x any] OR [any x Q] or [NA x NA] => unsupported
-      buckets = []; // ensures no points are drawn
+      prepared = []; // ensures no points are drawn
       context.dotPlotConfig.xAxisGroup.selectAll("*").remove();
       context.dotPlotConfig.yAxisGroup.selectAll("*").remove();
       context.dotPlotConfig.legendGroup.style("display", "none");
@@ -189,13 +188,6 @@ export class DotPlot {
       context.dotPlotConfig.legendGroup.style("display", "block");
       if (!xIsNA) {
         // x is N/O/T => horizontal dots
-        if (yIsNA) {
-          // [N/O/T x NA] => bucket by x only
-          buckets = d3.groups(prepared, (d) => `${d["xVar"]}${binLabelDelim}NA`);
-        } else {
-          // [N/O/T x N/O/T] => bucket by x and y
-          buckets = d3.groups(prepared, (d) => `${d["xVar"]}${binLabelDelim}${d["yVar"]}`);
-        }
         context.dotPlotConfig.xScale.domain(
           rawData
             .map(function (d) {
@@ -224,10 +216,6 @@ export class DotPlot {
       }
       if (!yIsNA) {
         // y is N/O/T => vertical dots
-        if (xIsNA) {
-          // [NA x N/O/T] => bucket y only
-          buckets = d3.groups(prepared, (d) => `NA${binLabelDelim}${d["yVar"]}`);
-        }
         context.dotPlotConfig.yScale.domain(
           rawData
             .map(function (d) {
@@ -274,122 +262,143 @@ export class DotPlot {
       }
     });
 
-    // JOIN data selection using bucket label as key
-    let dataBound = context.dotPlotConfig.dotsGroup.selectAll(".post").data(buckets, (d) => d[0]);
+    // JOIN one circle per TEEN (individual records), NOT per cell. This is the
+    // same per-datum binding the scatter plot uses, keyed on the primary key, so
+    // a hover or click touches exactly one teen. The old code aggregated each
+    // (xCat,yCat) cell into a single bubble (d3.groups) and fired group hover /
+    // group click, attributing attention (and selection) to EVERY teen in the
+    // cell at once -- that aggregation and its group interactions are gone.
+    let dataBound = context.dotPlotConfig.dotsGroup.selectAll(".post").data(prepared, (d) => d[PK]);
 
-    // DELETE extra dots (fade them out)
+    // DELETE extra points
     dataBound.exit().remove();
 
-    // ENTER new dots (starting invisible, later fade them in)
+    // ENTER new points
     let enterSelection = dataBound.enter().append("g").classed("post", true);
 
-    // UPDATE all existing dots
+    // UPDATE all existing points
     enterSelection.append("circle");
     enterSelection
       .merge(dataBound)
       .select("circle")
-      .attr("transform", (d) => {
-        const x = context.dotPlotConfig.xScale;
-        const y = context.dotPlotConfig.yScale;
-        d["x"] =
-          !xIsQ && !xIsNA
-            ? x(d[0].split(binLabelDelim)[0]) + x.bandwidth() / 2 // dist horizontal
-            : 0.5 * y.bandwidth(); // align left
-        d["y"] =
-          !yIsQ && !yIsNA
-            ? y(d[0].split(binLabelDelim)[1]) + y.bandwidth() / 2 // dist vertical
-            : context.plotHeight - 0.5 * x.bandwidth(); // align bottom
-        return `translate(${d["x"]}, ${d["y"]})`;
-      })
-      .attr("r", () => {
-        // fit the dots within the smallest bandwidth on either axis
-        const x = context.dotPlotConfig.xScale;
-        const y = context.dotPlotConfig.yScale;
-        return `${0.25 * Math.min(x.bandwidth(), y.bandwidth())}px`;
-      })
+      // base = cell center (same formula the old bubble used), + independent
+      // per-axis jitter so co-located teens declump instead of stacking.
+      .attr("transform", (d) => dotJitterTranslate(d, context, xIsNA, yIsNA))
+      // match the scatter dot radius (scatter-plot-component.ts:326)
+      .attr("r", 6)
       .style("fill", (d) => {
-        // fill based on interactions with underlying data points!
-        
-        switch (dataset["colorByMode"]) {
-          case "abs":
-            const sumInteracted = d[1].reduce(context.utilsService.sumTimesVisited, 0) as number;
-            const sumVisits = prepared.reduce(context.utilsService.sumTimesVisited, 0) as number;
-            return sumInteracted == 0
-              ? "white"
-              : context.userConfig.focusSequentialColorScale(sumInteracted / sumVisits);
-          case "rel":
-            const maxInteracted = d[1].reduce(context.utilsService.maxTimesVisited, 0) as number;
-            const maxVisits = prepared.reduce(context.utilsService.maxTimesVisited, 0) as number;
-            return maxInteracted == 0
-              ? "white"
-              : context.userConfig.focusSequentialColorScale(maxInteracted / maxVisits);
-          case "binary":
-            const visited = d[1].some((el) => el["timesVisited"] > 0);
-            return !visited ? "white" : context.userConfig.focusSequentialColorScale(1);
-          default:
-            return "white";
-        }
+        // per-teen focus color, exactly as the scatter plot colors its dots
+        // (scatter-plot-component.ts:327-333): white in CONTROL, else the
+        // interaction/focus color written onto the dict object by reference.
+        if (context.global.appLayout === "CONTROL") return "white";
+        let dataPoint = originalDatasetDict[d[PK]];
+        context.utilsService.colorDataPoint(context, dataPoint, prepared);
+        return dataPoint["color"];
       })
       .style("fill-opacity", 0.8)
-      .style("stroke", (d) => (d[1].reduce((a, b) => a || b["selected"], false) ? "brown" : "black"))
-      .style("stroke-width", (d) => (d[1].reduce((a, b) => a || b["selected"], false) ? "3px" : "1px"))
-      .style("stroke-dasharray", (d) => {
-        const countSelected = d[1].filter((o) => o["selected"]).length;
-        return countSelected < d[1].length && countSelected > 0 ? "3" : "none";
-      })
+      // per-teen selected styling (only the selected teen's own point highlights)
+      .style("stroke-width", (d) => (d["selected"] ? "3px" : "1px"))
+      .style("stroke", (d) => (d["selected"] ? "brown" : "black"))
       .style("cursor", "pointer")
       .on("click", function (event, d) {
-        if (context.global.appType === "ADMIN") {
-          context.utilsService.clickGroup(context, event, {
-            aggName: null,
-            aggAxis: null,
-            binLabel: d[0],
-            binValue: null,
-            binData: d[1],
-          });
+        // single-teen add/remove, matching scatter-plot-component.ts:338-360
+        const isControl = context.global.appLayout === "CONTROL";
+        const isAdmin = context.global.appType === "ADMIN";
+        if (isControl) {
+          const selectedCount = Object.keys(dataset["selectedObjects"]).length;
+          if (d["selected"]) {
+            context.utilsService.clickRemoveItem(context, event, d);
+          } else if (selectedCount < 10) {
+            context.utilsService.clickAddItem(context, event, d);
+          }
+        } else if (isAdmin) {
+          d["selected"]
+            ? context.utilsService.clickRemoveItem(context, event, d)
+            : context.utilsService.clickAddItem(context, event, d);
         }
+        // repaint the selection stroke locally (the server round trip is a no-op
+        // in tutorial mode), harmless if a real redraw also follows.
+        d3.select(this)
+          .style("stroke-width", d["selected"] ? "3px" : "1px")
+          .style("stroke", d["selected"] ? "brown" : "black");
       })
       .on("mouseover", function (event, d) {
-        context.utilsService.mouseoverGroup(context, event, this, {
-          aggName: null,
-          aggAxis: null,
-          binLabel: d[0],
-          binValue: null,
-          binData: d[1],
-        });
+        // single-teen hover, matching scatter-plot-component.ts:361-368. This
+        // routes to the singular `hoveredObject` model (mouseoverItem), so the
+        // dot plot now uses the scatter's single-item Details panel.
+        if (context.global.appLayout === "CONTROL") {
+          d3.select(this).style("fill", "#AED6F1");
+          context.utilsService.mouseoverItem(context, event, d);
+        } else {
+          context.utilsService.mouseoverItem(context, event, d, this, "fill");
+        }
       })
       .on("mouseout", function (event, d) {
-        context.utilsService.mouseoutGroup(context, event, {
-          aggName: null,
-          aggAxis: null,
-          binLabel: d[0],
-          binValue: null,
-          binData: d[1],
-        });
-      });
-
-    // FILTER can update `buckets` => must update hovered Objects list
-    if (dataset["hoveredObjects"]["binName"]) {
-      // binName set => there is a bin visible in details view, reset existing object
-      let currentBinName = dataset["hoveredObjects"]["binName"];
-      dataset["hoveredObjects"] = { binName: null, binAttr: null, points: {} };
-      // look for the bin in the filtered data set. If not there, table is already reset!
-      for (let bin of buckets) {
-        if (bin[0] == currentBinName) {
-          // found the bin! => update hovered Objects for possible FILTER
-          dataset["hoveredObjects"]["binName"] = currentBinName;
-          bin[1].forEach((d) => {
-            const id = d[dataset["primaryKey"]];
-            if (id !== "-") {
-              // use dict OBJECT to update source data by reference!
-              let dataPoint = originalDatasetDict[id];
-              context.utilsService.colorDataPoint(context, dataPoint, bin[1]);
-              dataset["hoveredObjects"]["points"][id] = dataPoint;
-            }
-          });
-          break;
+        if (context.global.appLayout === "CONTROL") {
+          d3.select(this).style("fill", "white");
         }
-      }
-    }
+        context.utilsService.mouseoutItem(context, event, d);
+      });
   }
+}
+
+// Both dot-plot axes are categorical (N/O/T) or NA -- never quantitative (Q x any
+// routes to the unsupported branch). Mirror scatter-plot-component.ts's CAT_JITTER
+// so the declump magnitude matches the scatter's categorical jitter. (That const
+// is module-private over there, so the value is repeated here, not imported.)
+const CAT_JITTER = 0.3;
+
+/**
+ * Per-teen translate(x,y) for the dot plot. Each teen's base is its cell center
+ * -- the SAME formula the old aggregate bubble used (align left/bottom when an
+ * axis is NA) -- plus an INDEPENDENT random jitter on BOTH axes. Unlike the
+ * scatter's mixed Q x categorical path (one axis jittered at a time), both axes
+ * here are categorical, so both get jitter. The RNG is seeded per teen
+ * (primaryKey + participantId) -- the exact seed scatter-plot-component.ts:400
+ * uses -- so a teen's point stays put across redraws. When an axis is NA it has
+ * no bandwidth of its own, so the other axis's bandwidth sets the spread.
+ */
+function dotJitterTranslate(d, context, xIsNA, yIsNA) {
+  const dataset = context.appConfig[context.global.appMode];
+  const xScale = context.dotPlotConfig.xScale;
+  const yScale = context.dotPlotConfig.yScale;
+  let rng = seedrandom(d[dataset["primaryKey"]] + context.global["participantId"]);
+
+  let xBase, xBound;
+  if (!xIsNA) {
+    xBase = xScale(d["xVar"]) + xScale.bandwidth() / 2;
+    xBound = CAT_JITTER * xScale.bandwidth();
+  } else {
+    xBase = 0.5 * yScale.bandwidth(); // align left (matches the old bubble)
+    xBound = CAT_JITTER * yScale.bandwidth();
+  }
+  let yBase, yBound;
+  if (!yIsNA) {
+    yBase = yScale(d["yVar"]) + yScale.bandwidth() / 2;
+    yBound = CAT_JITTER * yScale.bandwidth();
+  } else {
+    yBase = context.plotHeight - 0.5 * xScale.bandwidth(); // align bottom (old bubble)
+    yBound = CAT_JITTER * xScale.bandwidth();
+  }
+
+  // Independent per-axis offset (same sign-then-magnitude draw pattern as scatter).
+  let sign = rng() > 0.5 ? -1 : 1;
+  let x = xBase + sign * rng() * xBound;
+  sign = rng() > 0.5 ? -1 : 1;
+  let y = yBase + sign * rng() * yBound;
+
+  // Reflect any overflow back inside the plot area (mirror), matching scatter.
+  if (x < 0) x = -x;
+  else if (x > context.plotWidth) x = 2 * context.plotWidth - x;
+  if (y < 0) y = -y;
+  else if (y > context.plotHeight) y = 2 * context.plotHeight - y;
+
+  // Categorical axes have no scale.invert(); the single-item Details panel must
+  // show the true category, so clear any stored data-space jitter. This upholds
+  // the scatter panel's invariant (jitter_*Val non-null IFF a Q jitter applied),
+  // so panelValue() falls back to the true value for both axes.
+  d["jitter_xVal"] = null;
+  d["jitter_yVal"] = null;
+
+  return `translate(${x}, ${y})`;
 }

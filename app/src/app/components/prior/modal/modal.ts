@@ -7,8 +7,69 @@ import { SessionPage } from '../../../models/config';
 import { cleanAttr } from '../../../models/attribute-labels';
 
 const CONDITION_LABEL: Record<PriorCondition, string> = {
-  diagnosed:     'teens who have been diagnosed with depression or anxiety',
-  not_diagnosed: 'teens who have not been diagnosed with depression or anxiety',
+  diagnosed:     'teenagers who have been diagnosed with depression or anxiety',
+  not_diagnosed: 'teenagers who have not been diagnosed with depression or anxiety',
+};
+
+interface AttributeCopy {
+  // Singular/plural noun for what a single token bin represents, e.g. "age" /
+  // "age categories" -- plugged into the instruction paragraph's "distribute
+  // tokens across the ___" / "how common you think each ___ is" phrasing.
+  rangeNoun: string;
+  rangeNounPlural: string;
+  // A concrete "for example, ..." sentence illustrating the mechanic for
+  // this specific attribute (mirrors the participant-facing wording agreed
+  // for the real dataset's attributes).
+  example: string;
+}
+
+// Attribute copy for both the real dataset (mental_health_data.csv) and the
+// tutorial's housing stand-in (tutorial_data.csv), keyed by the attribute
+// names used in config.ts for each. Any attribute not listed here falls back
+// to genericAttributeCopy() below rather than crashing or showing nothing --
+// that fallback has no formatting logic though, so anything that should read
+// as currency (Price) or a formatted number (Lot Area) needs its own entry.
+const ATTRIBUTE_COPY: Record<string, AttributeCopy> = {
+  Price: {
+    rangeNoun: 'price range',
+    rangeNounPlural: 'price ranges',
+    example: 'if you believe homes priced around $200,000 are the most common, place more tokens on that range than the others',
+  },
+  'Lot Area': {
+    rangeNoun: 'lot size range',
+    rangeNounPlural: 'lot size ranges',
+    example: 'if you believe lots around 8,000 sq ft are the most common, place more tokens on that range than the others',
+  },
+  child_age_years: {
+    rangeNoun: 'age',
+    rangeNounPlural: 'age categories',
+    example: 'if you believe 16-year-olds are the most common, place more tokens on age 16 than on the other ages',
+  },
+  screen_time_weekday: {
+    rangeNoun: 'screen time range',
+    rangeNounPlural: 'screen time ranges',
+    example: 'if you believe 4 hours of screen time a day is the most common, place more tokens on that range than the others',
+  },
+  hours_sleep_weeknight: {
+    rangeNoun: 'sleep range',
+    rangeNounPlural: 'sleep ranges',
+    example: 'if you believe 8 hours of sleep is the most common, place more tokens on that range than the others',
+  },
+  days_physical_activity_week: {
+    rangeNoun: 'activity range',
+    rangeNounPlural: 'activity ranges',
+    example: 'if you believe 3 days of physical activity a week is the most common, place more tokens on that range than the others',
+  },
+  child_sex: {
+    rangeNoun: 'sex',
+    rangeNounPlural: 'sexes',
+    example: 'if you believe girls are more common in this group than boys, place more tokens on girls',
+  },
+  difficulty_making_friends: {
+    rangeNoun: 'difficulty level',
+    rangeNounPlural: 'difficulty levels',
+    example: 'if you believe "a little difficulty" is the most common response, place more tokens there than on the other options',
+  },
 };
 
 @Component({
@@ -26,12 +87,11 @@ export class ElicitationModalComponent implements OnInit {
   // domain-neutral wording for its unrelated dummy dataset, without touching
   // the real task's "diagnosed/not diagnosed" copy.
   @Input() conditionLabels: Partial<Record<PriorCondition, string>> = {};
-  // Same idea as conditionLabels: the modal's instruction copy says "...among
-  // these teens" by default (the real dataset). Tutorial overrides this to
-  // match its own unrelated dummy dataset.
-  @Input() subjectNounPlural: string = 'teens';
 
   @Output() closed = new EventEmitter<void>();
+
+  // Fixed shape for both distributions -- was participant-toggleable, no longer is.
+  tokenShape: 'square' | 'circle' = 'square';
 
   currentAttrIndex = 0;
   done = false;
@@ -49,12 +109,12 @@ export class ElicitationModalComponent implements OnInit {
     return this.allAttributes[this.currentAttrIndex] ?? '';
   }
 
-  // Each attribute is 2 screens now (combined distribution, then one shared
-  // confidence rating), so the counter should reflect actual screens, not
-  // just attributes -- otherwise "Step X of Y" shows the same number for
-  // both screens of an attribute.
-  get totalSteps(): number { return this.allAttributes.length * 2; }
-  get currentStep(): number { return this.currentAttrIndex * 2 + (this.confidenceStep ? 2 : 1); }
+  // Each attribute is 2 screens internally (combined distribution, then a
+  // shared confidence rating), but participants shouldn't see that -- "Step
+  // X of Y" should count attributes, not screens, so it reads e.g. "1 of 6"
+  // instead of "1 of 12" for a 6-attribute dataset.
+  get totalSteps(): number { return this.allAttributes.length; }
+  get currentStep(): number { return this.currentAttrIndex + 1; }
 
   get isFirstStep(): boolean {
     return this.currentAttrIndex === 0 && !this.confidenceStep;
@@ -83,6 +143,25 @@ export class ElicitationModalComponent implements OnInit {
 
   isCategorical(attr: string): boolean {
     return attr in this.categoricalValues;
+  }
+
+  // Falls back to this for any attribute not in ATTRIBUTE_COPY (e.g. the
+  // tutorial's Price/Lot Area/Home Type) so the instruction paragraph never
+  // breaks -- just reads a bit more generic than the real dataset's
+  // hand-written copy.
+  private genericAttributeCopy(attr: string): AttributeCopy {
+    const noun = cleanAttr(attr).toLowerCase();
+    const kind = this.isCategorical(attr) ? 'category' : 'range';
+    return {
+      rangeNoun: `${noun} ${kind}`,
+      rangeNounPlural: `${noun} ${kind}s`,
+      example: `if you believe a particular ${noun} ${kind} is the most common, place more tokens there than on the others`,
+    };
+  }
+
+  get attrCopy(): AttributeCopy {
+    if (!this.selectedAttribute) return this.genericAttributeCopy('');
+    return ATTRIBUTE_COPY[this.selectedAttribute] ?? this.genericAttributeCopy(this.selectedAttribute);
   }
 
   get currentValues(): number[] {
@@ -122,13 +201,6 @@ export class ElicitationModalComponent implements OnInit {
   counterClassA: 'pop-a' | 'pop-b' = 'pop-a';
   counterClassB: 'pop-a' | 'pop-b' = 'pop-a';
 
-  // Lets participants collapse either distribution's grid (across all bins
-  // at once) to cut down on vertical space, without losing track of counts.
-  seriesACollapsed = false;
-  seriesBCollapsed = false;
-  toggleSeriesA() { this.seriesACollapsed = !this.seriesACollapsed; }
-  toggleSeriesB() { this.seriesBCollapsed = !this.seriesBCollapsed; }
-
   onCountsAChange(counts: number[]) {
     this.draftCountsA = counts;
     this.counterClassA = this.counterClassA === 'pop-a' ? 'pop-b' : 'pop-a';
@@ -137,10 +209,6 @@ export class ElicitationModalComponent implements OnInit {
   onCountsBChange(counts: number[]) {
     this.draftCountsB = counts;
     this.counterClassB = this.counterClassB === 'pop-a' ? 'pop-b' : 'pop-a';
-  }
-
-  hasPrior(attr: string): boolean {
-    return this.store.hasBothBeliefs(this.datasetId, attr);
   }
 
   resetA() {
@@ -265,10 +333,6 @@ export class ElicitationModalComponent implements OnInit {
       this.confidenceRating = existingA?.confidence ?? existingB?.confidence ?? 50;
     }
     // if isFirstStep, back button is hidden — nothing to do
-  }
-
-  get canClose(): boolean {
-    return this.done || this.allAttributes.every(attr => this.hasPrior(attr));
   }
 
   close() {

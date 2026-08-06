@@ -29,7 +29,6 @@ export class SessionPage {
 
 export const DeploymentConfig = Object.freeze({
   SERVER_URL: "https://lumos-llm.onrender.com/"
-  // SERVER_URL: "http://localhost:3000"
 });
 
 /**
@@ -1043,20 +1042,11 @@ export const AppConfig = {
     chartType: "scatterplot",
     orderedAttributeList: [
       "id",
-      "Fireplaces",
       "Lot Area",
       "Price",
       "Rooms",
-      "Satisfaction",
       "Year",
-      "Central Air",
-      "Fence Type",
-      "Foundation Type",
-      "Garage Type",
-      "Heating Type",
       "Home Type",
-      "Lot Config",
-      "Roof Style",
     ],
     attributes: {
       Rooms: {
@@ -1067,24 +1057,8 @@ export const AppConfig = {
         min: Infinity,
         filterModel: [0, 1],
       },
-      Fireplaces: {
-        name: "Fireplaces",
-        datatype: "Q",
-        max: -Infinity,
-        step: 1,
-        min: Infinity,
-        filterModel: [0, 1],
-      },
       Price: {
         name: "Price",
-        datatype: "Q",
-        max: -Infinity,
-        step: 1,
-        min: Infinity,
-        filterModel: [0, 1],
-      },
-      Satisfaction: {
-        name: "Satisfaction",
         datatype: "Q",
         max: -Infinity,
         step: 1,
@@ -1113,50 +1087,8 @@ export const AppConfig = {
         types: [],
         filterModel: [],
       },
-      "Lot Config": {
-        name: "Lot Config",
-        datatype: "N",
-        types: [],
-        filterModel: [],
-      },
       "Home Type": {
         name: "Home Type",
-        datatype: "N",
-        types: [],
-        filterModel: [],
-      },
-      "Roof Style": {
-        name: "Roof Style",
-        datatype: "N",
-        types: [],
-        filterModel: [],
-      },
-      "Foundation Type": {
-        name: "Foundation Type",
-        datatype: "N",
-        types: [],
-        filterModel: [],
-      },
-      "Heating Type": {
-        name: "Heating Type",
-        datatype: "N",
-        types: [],
-        filterModel: [],
-      },
-      "Central Air": {
-        name: "Central Air",
-        datatype: "N",
-        types: [],
-        filterModel: [],
-      },
-      "Garage Type": {
-        name: "Garage Type",
-        datatype: "N",
-        types: [],
-        filterModel: [],
-      },
-      "Fence Type": {
-        name: "Fence Type",
         datatype: "N",
         types: [],
         filterModel: [],

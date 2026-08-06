@@ -6,11 +6,18 @@
   height: 100%;
   background: rgba(20, 20, 20, 0.45);
   display: flex;
-  align-items: flex-start;
+  /* stretch (not center) so .modal-panel's height is derived directly from
+     this box's own dimensions minus this padding -- no vh guessing, no
+     mismatch between the panel and the actual window. */
+  align-items: stretch;
   justify-content: center;
   z-index: 1000;
+  /* Safety net only, not a design goal -- the panel below is sized to fit
+     the viewport on its own (see .modal-panel), so this should never
+     actually engage. Keeping it means a genuinely oversized edge case
+     degrades to a scrollbar instead of silently clipping content. */
   overflow-y: auto;
-  padding: 6px 0;
+  padding: 8px;
   box-sizing: border-box;
 }
 
@@ -18,14 +25,31 @@
   background: white;
   border: 1.5px solid #1a1a1a;
   border-radius: 4px;
-  width: 90vw;
-  max-width: 1000px;
-  overflow: visible;
+  width: 94vw;
+  max-width: 1280px;
+  box-sizing: border-box;
+  overflow: hidden;
+  /* .modal-backdrop uses align-items:stretch (so .full-height below can get
+     an exact height derived from the backdrop's own box), which stretches
+     ALL flex children by default -- override back to auto-sized/centered
+     here so the non-full-height steps actually get their own content
+     height instead of silently inheriting the stretch too. */
+  align-self: center;
   box-shadow: 6px 6px 0 rgba(0,0,0,0.12);
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 22px;
+  gap: 6px;
+  padding: 14px 22px;
+}
+
+/* Only the token-placement step actually needs to fill the window -- that's
+   the one with two full histograms that was overflowing/scrolling.
+   Confidence rating (one slider) and the completion screen never had that
+   problem, so they're left to size to their own content instead of being
+   forced to match this same fixed height. */
+.modal-panel.full-height {
+  height: 100%;
+  align-self: stretch;
 }
 
 .modal-header {
@@ -33,6 +57,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  flex-shrink: 0;
 }
 
 .modal-header-left {
@@ -72,6 +97,7 @@
   display: inline-block;
   width: 12px;
   height: 12px;
+  margin-right: 3px;
   border-radius: 50%;
   box-shadow: inset 0 0 0 1px #1a1a1a;
   flex-shrink: 0;
@@ -80,8 +106,22 @@
 .legend-dot-a { background: #2e8b7d; }
 .legend-dot-b { background: #e2913f; }
 
+.distributions-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.series-block {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .series-block + .series-block {
-  margin-top: 14px;
+  margin-top: 8px;
 }
 
 .series-block-header {
@@ -90,24 +130,14 @@
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 4px;
+  flex-shrink: 0;
 }
 
-.series-toggle {
+.series-content {
+  flex: 1;
+  min-height: 0;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  background: none;
-  border: none;
-  padding: 2px 0;
-  cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: #1a1a1a;
-}
-
-.series-toggle i {
-  font-size: 0.7rem;
-  color: #666;
+  flex-direction: column;
 }
 
 .modal-balls-count {
@@ -124,17 +154,9 @@
 .modal-balls-count.pop-b { animation: pop-even 160ms ease-out; }
 .modal-balls-label { font-size: 0.75rem; color: #1a1a1a; }
 
-.modal-close {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 1rem;
-  color: #666;
-  padding: 2px 6px;
-  flex-shrink: 0;
-}
-
 .modal-body {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -186,7 +208,8 @@
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 4px;
+  flex-shrink: 0;
 }
 
 .reset-link {
@@ -208,14 +231,18 @@
 }
 
 .histogram-box {
-  padding: 14px 12px 10px;
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 8px 12px 6px;
   background: #fafaf6;
   border: 1.5px solid #dddddd;
   border-radius: 4px;
   overflow-x: auto;
-  overflow-y: visible;
+  overflow-y: hidden;
   display: flex;
   justify-content: center;
+  align-items: stretch;
 }
 
 .modal-back-title {
@@ -230,12 +257,13 @@
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  padding-top: 8px;
+  padding-top: 4px;
+  flex-shrink: 0;
   border-top: 1px dashed #8a8a85;
 }
 
 .modal-footer button {
-  padding: 6px 16px;
+  padding: 5px 14px;
   border: 1.5px solid #1a1a1a;
   border-radius: 4px;
   background: white;
@@ -283,38 +311,37 @@
 }
 
 .modal-instruction {
-  font-size: 0.88rem;
+  font-size: 0.85rem;
   color: #444;
-  line-height: 1.55;
-  margin-top: 6px;
+  line-height: 1.4;
+  margin-top: 4px;
 }
 
-.condition-highlight {
-  background: #fff3cd;
-  border-radius: 3px;
-  padding: 1px 4px;
+.modal-instruction-note {
+  font-size: 0.78rem;
+  color: #777;
+  line-height: 1.4;
+  margin-top: 4px;
+  font-style: italic;
+}
+
+.condition-question {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
   font-weight: 600;
+  font-size: 0.8rem;
   color: #1a1a1a;
+  background: #fafaf6;
+  border: 1.5px solid #dddddd;
+  border-left: 4px solid #1a1a1a;
+  border-radius: 4px;
+  padding: 5px 10px;
 }
 
-.condition-step-badge {
-  display: inline-block;
-  font-size: 0.7rem;
-  font-weight: 700;
-  background: #1a1a1a;
-  color: white;
-  border-radius: 3px;
-  padding: 1px 5px;
-  margin-right: 6px;
-  vertical-align: middle;
-  letter-spacing: 0.03em;
-}
-
-.condition-label {
-  font-weight: 600;
-  color: #1a1a1a !important;
-  margin-bottom: 2px !important;
-}
+.condition-question-a { border-left-color: #2e8b7d; }
+.condition-question-b { border-left-color: #e2913f; }
 
 .partial-check {
   color: #aaa;

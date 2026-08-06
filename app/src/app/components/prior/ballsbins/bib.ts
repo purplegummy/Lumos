@@ -11,6 +11,8 @@ export class BallsIntoBinsComponent implements OnInit, OnChanges {
   @Input() initialCounts: number[] = [];
   @Input() fixedBins: Bin[] = [];   // when set, skips computation from values
   @Input() seriesColor: 'a' | 'b' = 'a';
+  @Input() shape: 'square' | 'circle' = 'square';
+  @Input() isCurrency: boolean = false;
   @Output() countsChange = new EventEmitter<number[]>();
 
   bins: Bin[] = [];
@@ -62,7 +64,7 @@ export class BallsIntoBinsComponent implements OnInit, OnChanges {
    */
   private computeBinsForInputs(): Bin[] {
     if (this.fixedBins.length > 0) return this.fixedBins;
-    if (this.values.length > 0) return this.binningService.computeBins(this.values);
+    if (this.values.length > 0) return this.binningService.computeBins(this.values, this.isCurrency);
     return [];
   }
 

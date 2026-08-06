@@ -3,11 +3,16 @@
   <div class="navbar-collapse collapse show align-items-center w-100" id="collapsingNavbar2">
     <div class="navbar-brand">Lumos</div>
   </div>
-  <button *ngIf="global.appLayout === 'CONTROL'" class="btn btn-outline-secondary btn-sm"
-    style="position: absolute; top: 50%; right: 16px; transform: translateY(-50%);"
-    (click)="showInstructionsModal = true">
-    View Instructions
-  </button>
+  <div style="position: absolute; top: 50%; right: 16px; transform: translateY(-50%); display: flex; gap: 8px;">
+    <button *ngIf="llmSummaryEnabled && lastLlmSummary" class="btn btn-outline-secondary btn-sm"
+      (click)="viewSummary()">
+      View Summary
+    </button>
+    <button *ngIf="global.appLayout === 'CONTROL'" class="btn btn-outline-secondary btn-sm"
+      (click)="showInstructionsModal = true">
+      View Instructions
+    </button>
+  </div>
 </nav>
 
 <!-- Task instructions recap -->
@@ -288,10 +293,6 @@
                     <td class="float-right">
                       <button class="btn btn-light btn-sm" (click)="swapXY()">Swap XY</button>
                       {{" "}}
-                      <button class="btn btn-light btn-sm" (click)="resetAllEncodings()">
-                        <i class="fa fa-times"></i>
-                      </button>
-                      {{" "}}
                       <!-- TEMP DEBUG: toggle the live metrics Logs panel -->
                       <button class="btn btn-light btn-sm" (click)="showLogsPanel = !showLogsPanel">Logs</button>
                     </td>
@@ -307,13 +308,12 @@
                   <div class="row mb-sm">
                     <label class="col-sm-4 col-form-label">X Axis</label>
                     <div class="col-sm-8">
-                      <ng-select class="fa" name="xVarSelect" [searchable]="false" appendTo="body"
-                        [(ngModel)]="appConfig[global.appMode]['xVar']" (change)="onChangeAttribute($event, 'x_axis')"
-                        (clear)="onChangeAttribute($event, 'x_axis', true)">
+                      <ng-select class="fa" name="xVarSelect" [searchable]="false" [clearable]="false" appendTo="body"
+                        [(ngModel)]="appConfig[global.appMode]['xVar']" (change)="onChangeAttribute($event, 'x_axis')">
                         <!-- Q => Quantitative -->
                         <ng-container *ngFor="let x of appConfig[global.appMode].attributeDatatypeList['Q']">
                           <ng-option
-                            *ngIf="x !== appConfig[global.appMode].primaryKey && x !== appConfig[global.appMode].labelKey && x !== 'ever_diagnosed_dep_or_anx'"
+                            *ngIf="x !== appConfig[global.appMode].primaryKey && x !== appConfig[global.appMode].labelKey && x !== 'ever_diagnosed_dep_or_anx' && isEncodable(x)"
                             [value]="x">
                             &#xf292; {{cleanAttr(x)}}
                           </ng-option>
@@ -321,7 +321,7 @@
                         <!-- T => Temporal -->
                         <ng-container *ngFor="let x of appConfig[global.appMode].attributeDatatypeList['T']">
                           <ng-option
-                            *ngIf="x !== appConfig[global.appMode].primaryKey && x !== appConfig[global.appMode].labelKey && x !== 'ever_diagnosed_dep_or_anx'"
+                            *ngIf="x !== appConfig[global.appMode].primaryKey && x !== appConfig[global.appMode].labelKey && x !== 'ever_diagnosed_dep_or_anx' && isEncodable(x)"
                             [value]="x">
                             &#xf133; {{cleanAttr(x)}}
                           </ng-option>
@@ -329,7 +329,7 @@
                         <!-- O => Ordinal -->
                         <ng-container *ngFor="let x of appConfig[global.appMode].attributeDatatypeList['O']">
                           <ng-option
-                            *ngIf="x !== appConfig[global.appMode].primaryKey && x !== appConfig[global.appMode].labelKey && x !== 'ever_diagnosed_dep_or_anx'"
+                            *ngIf="x !== appConfig[global.appMode].primaryKey && x !== appConfig[global.appMode].labelKey && x !== 'ever_diagnosed_dep_or_anx' && isEncodable(x)"
                             [value]="x">
                             &#xf031; {{cleanAttr(x)}}
                           </ng-option>
@@ -337,7 +337,7 @@
                         <!-- N => Nominal -->
                         <ng-container *ngFor="let x of appConfig[global.appMode].attributeDatatypeList['N']">
                           <ng-option
-                            *ngIf="x !== appConfig[global.appMode].primaryKey && x !== appConfig[global.appMode].labelKey && x !== 'ever_diagnosed_dep_or_anx'"
+                            *ngIf="x !== appConfig[global.appMode].primaryKey && x !== appConfig[global.appMode].labelKey && x !== 'ever_diagnosed_dep_or_anx' && isEncodable(x)"
                             [value]="x">
                             &#xf031; {{cleanAttr(x)}}
                           </ng-option>
@@ -350,13 +350,12 @@
                   <div class="row mb-sm">
                     <label class="col-sm-4 col-form-label">Y Axis</label>
                     <div class="col-sm-8">
-                      <ng-select class="fa" name="yVarSelect" [searchable]="false" appendTo="body"
-                        [(ngModel)]="appConfig[global.appMode]['yVar']" (change)="onChangeAttribute($event, 'y_axis')"
-                        (clear)="onChangeAttribute($event, 'y_axis', true)">
+                      <ng-select class="fa" name="yVarSelect" [searchable]="false" [clearable]="false" appendTo="body"
+                        [(ngModel)]="appConfig[global.appMode]['yVar']" (change)="onChangeAttribute($event, 'y_axis')">
                         <!-- Q => Quantitative -->
                         <ng-container *ngFor="let y of appConfig[global.appMode].attributeDatatypeList['Q']">
                           <ng-option
-                            *ngIf="y !== appConfig[global.appMode].primaryKey && y !== appConfig[global.appMode].labelKey"
+                            *ngIf="y !== appConfig[global.appMode].primaryKey && y !== appConfig[global.appMode].labelKey && isEncodable(y)"
                             [value]="y">
                             &#xf292; {{cleanAttr(y)}}
                           </ng-option>
@@ -364,7 +363,7 @@
                         <!-- T => Temporal -->
                         <ng-container *ngFor="let y of appConfig[global.appMode].attributeDatatypeList['T']">
                           <ng-option
-                            *ngIf="y !== appConfig[global.appMode].primaryKey && y !== appConfig[global.appMode].labelKey"
+                            *ngIf="y !== appConfig[global.appMode].primaryKey && y !== appConfig[global.appMode].labelKey && isEncodable(y)"
                             [value]="y">
                             &#xf133; {{cleanAttr(y)}}
                           </ng-option>
@@ -372,7 +371,7 @@
                         <!-- O => Ordinal -->
                         <ng-container *ngFor="let y of appConfig[global.appMode].attributeDatatypeList['O']">
                           <ng-option
-                            *ngIf="y !== appConfig[global.appMode].primaryKey && y !== appConfig[global.appMode].labelKey"
+                            *ngIf="y !== appConfig[global.appMode].primaryKey && y !== appConfig[global.appMode].labelKey && isEncodable(y)"
                             [value]="y">
                             &#xf031; {{cleanAttr(y)}}
                           </ng-option>
@@ -380,7 +379,7 @@
                         <!-- N => Nominal -->
                         <ng-container *ngFor="let y of appConfig[global.appMode].attributeDatatypeList['N']">
                           <ng-option
-                            *ngIf="y !== appConfig[global.appMode].primaryKey && y !== appConfig[global.appMode].labelKey"
+                            *ngIf="y !== appConfig[global.appMode].primaryKey && y !== appConfig[global.appMode].labelKey && isEncodable(y)"
                             [value]="y">
                             &#xf031; {{cleanAttr(y)}}
                           </ng-option>
@@ -427,8 +426,8 @@
 
         <!-- ROW: Filters -->
         <as-split-area [size]="global.appType == 'ADMIN' ? 33 : global.appLayout === 'CONTROL' ? 70 : 66">
-          <div class="list-group h-100">
-            <article class="list-group-item" id="tutorial-filters-panel">
+          <div class="list-group h-100" id="tutorial-filters-panel">
+            <article class="list-group-item">
               <!-- Header -->
               <header class="filter-header">
                 <table class="w-100">
@@ -454,7 +453,7 @@
                   <div class="form-group"
                     *ngFor="let attribute of appConfig[global.appMode].attributeDatatypeList['N'];">
                     <ng-container *ngIf="appConfig[global.appMode]['attributes'][attribute]['filter']">
-                      <div style="display:block; margin-bottom: 6px;">
+                      <div class="nominal-filter-row">
                         <label class="form-label" for="{{'select_' + attribute}}" style="cursor:pointer; margin-bottom:0" (click)="global.appLayout === 'CONTROL' ? toggleFilterExpand(attribute) : null">
                           <i *ngIf="global.appLayout === 'CONTROL'" class="fa" [ngClass]="expandedFilters.has(attribute) ? 'fa-chevron-down' : 'fa-chevron-right'" style="font-size:0.7rem; margin-right:4px"></i>
                           {{cleanAttr(attribute)}}
@@ -558,8 +557,8 @@
 
         <!-- ROW: Selected Object(s) -->
         <as-split-area #selected_objects_container [size]="32" style="overflow: hidden">
-          <!-- Default Hover Table (for Scatter*/Strip Plots) -->
-          <div *ngIf="['dotplot', 'barchart', 'linechart'].indexOf(currentPlotInstance) === -1" class="list-group h-100"
+          <!-- Default Hover Table (for Scatter*/Strip Plots + Dot Plot, now per-teen) -->
+          <div *ngIf="['barchart', 'linechart'].indexOf(currentPlotInstance) === -1" class="list-group h-100"
             style="overflow-x: hidden">
             <article class="list-group-item" id="tutorial-details-panel">
               <!-- Header -->
@@ -601,8 +600,8 @@
             </article>
           </div>
 
-          <!-- Hover Table for Dot Plot and Bar/Line Charts -->
-          <div *ngIf="['dotplot', 'barchart', 'linechart'].indexOf(currentPlotInstance) !== -1" class="list-group">
+          <!-- Hover Table for Bar/Line Charts (Dot Plot now uses the per-teen single-item panel above) -->
+          <div *ngIf="['barchart', 'linechart'].indexOf(currentPlotInstance) !== -1" class="list-group">
             <article class="list-group-item" id="tutorial-details-panel">
               <!-- Header -->
               <header #table_header class="details-header">
@@ -941,7 +940,7 @@
         </as-split-area>
 
         <!-- ROW: Selected Subjects Panel (CONTROL only) -->
-        <as-split-area *ngIf="global.appLayout === 'CONTROL'" [size]="100">
+        <as-split-area *ngIf="global.appLayout === 'CONTROL'" [size]="showLlmPanel ? (global.isTutorial ? 60 : 35) : 100">
           <div class="list-group h-100">
             <article class="list-group-item selected-subjects-panel">
 
@@ -961,7 +960,7 @@
               </div>
 
               <!-- Subject list -->
-              <div class="subject-list">
+              <div class="subject-list" [style.min-height.px]="subjectListMinHeightPx">
                 <div *ngFor="let subject of objectValues(appConfig[global.appMode]['selectedObjects']); let i = index"
                      class="subject-row"
                      (mouseenter)="hoverSubject(subject)"
@@ -991,6 +990,15 @@
           </div>
         </as-split-area>
 
+        <!-- ROW: LLM Intervention Panel (LLM only) -->
+        <as-split-area *ngIf="showLlmPanel" [size]="global.isTutorial ? 40 : 65">
+          <app-llm-intervention
+            [intervention]="llmIntervention"
+            (explore)="applyThemeFilter($event)"
+            (closed)="llmIntervention = null"
+          ></app-llm-intervention>
+        </as-split-area>
+
       </as-split>
     </as-split-area>
   </as-split>
@@ -1003,9 +1011,44 @@
     [categoricalValues]="getElicitationCategoricalValues()"
     [practiceMode]="global.isTutorial"
     [conditionLabels]="getElicitationConditionLabels()"
-    [subjectNounPlural]="global.isTutorial ? 'homes' : 'teens'"
     (closed)="onPriorModalClosed()"
   ></app-elicitation-modal>
+
+  <!-- Pre-submission summary (LLM_SUMMARY / LLM_BOTH). Stands in for the confirm
+       dialog below on the first submit; both are never open at once. -->
+  <div *ngIf="llmSummaryLoading || llmSummary" class="confirm-modal-backdrop">
+    <div class="confirm-modal-panel llm-summary-panel">
+      <div class="confirm-modal-title">{{summaryViewOnly ? "Your summary" : "Before you submit"}}</div>
+
+      <!-- No actions while generating: disabled buttons read as broken. This
+           state always ends because requestLlmSummary schedules a timer before
+           it sends anything. -->
+      <div class="confirm-modal-body" *ngIf="llmSummaryLoading">Taking a look at the teens you picked...</div>
+
+      <ng-container *ngIf="llmSummary">
+        <div class="confirm-modal-body">{{llmSummary.awareness_summary}}</div>
+        <div class="llm-summary-transition">{{llmSummary.transition}}</div>
+
+        <div class="llm-theme" *ngFor="let theme of llmSummary.recommended_themes">
+          <div class="llm-theme-title">{{theme.title}}</div>
+          <div class="llm-theme-description">{{theme.description}}</div>
+          <button class="btn btn-outline-secondary btn-sm" (click)="reviseWithTheme(theme)">Show me these →</button>
+        </div>
+
+        <!-- Just looking back at an already-seen summary: no submit action here,
+             only a way to close it. -->
+        <div class="confirm-modal-actions" *ngIf="summaryViewOnly">
+          <button class="btn btn-light btn-sm" (click)="llmSummary = null">Close</button>
+        </div>
+
+        <!-- Open as part of an actual submit attempt: same two choices as before. -->
+        <div class="confirm-modal-actions" *ngIf="!summaryViewOnly">
+          <button class="btn btn-light btn-sm" (click)="llmSummary = null">Go back and revise</button>
+          <button class="btn btn-primary btn-sm" (click)="submitTask()">Submit anyway</button>
+        </div>
+      </ng-container>
+    </div>
+  </div>
 
   <!-- Submit confirmation -->
   <div *ngIf="showSubmitConfirm" class="confirm-modal-backdrop">

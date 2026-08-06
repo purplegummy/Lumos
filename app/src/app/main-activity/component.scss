@@ -359,14 +359,14 @@
 }
 
 .selected-subjects-header {
-  margin-bottom: 10px;
+  margin-bottom: 4px;
   flex-shrink: 0;
 }
 
 .subject-hint {
   font-size: 0.78rem;
   color: #999;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
   flex-shrink: 0;
 }
 
@@ -374,8 +374,9 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-  /* reserve room for all 10 rows so the submit button below never shifts as teens are added */
-  min-height: calc(10 * (1.3em + 12px + 1px));
+  /* min-height is set directly per-instance via [style.min-height.px] in
+     component.html (component.ts's subjectListMinHeightPx), not here --
+     it needs to vary with requiredSelections (3 for tutorial, 10 for real). */
 }
 
 .subject-row {
@@ -422,7 +423,7 @@
 .subject-submit-btn {
   display: block;
   width: 100%;
-  margin-top: 12px;
+  margin-top: 6px;
   flex-shrink: 0;
 }
 
@@ -471,6 +472,39 @@
   max-width: 520px;
 }
 
+.llm-summary-panel {
+  max-width: 420px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.llm-summary-transition {
+  font-size: 0.78rem;
+  color: #999;
+  line-height: 1.4;
+  margin-bottom: 12px;
+}
+
+.llm-theme {
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.llm-theme-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+
+.llm-theme-description {
+  font-size: 0.78rem;
+  color: #666;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
 .instructions-modal-panel .confirm-modal-body p {
   margin: 0 0 12px;
 }
@@ -507,8 +541,22 @@
   margin-bottom: 4px;
 }
 
+.nominal-filter-row {
+  display: block;
+  margin-bottom: 6px;
+}
+
 .control-filter-panel {
   .form-group {
+    margin-bottom: 0;
+  }
+
+  // Nominal attributes (e.g. Home Type) don't use hr.separator for spacing
+  // like Quantitative ones do, so hr.separator's display:none below doesn't
+  // touch this -- matching that zeroed-out spacing explicitly instead of
+  // leaving this row with a visible gap the others don't have.
+  .nominal-filter-row {
+    display: block;
     margin-bottom: 0;
   }
 

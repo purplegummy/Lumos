@@ -1,0 +1,53 @@
+/* The split area sizes this component, so the height has to pass through the
+   host for the panel's own overflow to kick in. */
+:host {
+  display: block;
+  height: 100%;
+}
+
+.llm-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.llm-header {
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+
+.llm-summary {
+  font-size: 0.85rem;
+  color: #1a1a1a;
+  line-height: 1.45;
+  margin-bottom: 8px;
+}
+
+.llm-transition {
+  font-size: 0.78rem;
+  color: #999;
+  line-height: 1.4;
+  margin-bottom: 10px;
+}
+
+.llm-theme {
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.llm-theme-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 3px;
+}
+
+.llm-theme-description {
+  font-size: 0.78rem;
+  color: #666;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
