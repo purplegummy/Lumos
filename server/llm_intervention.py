@@ -156,10 +156,15 @@ def _diagnosis_filter_for_filter_ranges(candidates, filter_ranges):
 
 
 def top_variable_contributors(dwell_bias_v, attended_direction, n=3):
-    """Top-n variables by |DwellBias_v|, each paired with its attention direction,
-    in the {"variable", "range"} shape the Awareness input uses."""
-    supported = [kv for kv in dwell_bias_v.items() if kv[0] in SUPPORTED_VARIABLES]
-    ranked = sorted(supported, key=lambda kv: abs(kv[1]), reverse=True)[:n]
+    """Top-n positive-DwellBias_v variables, raw descending, each paired with its
+    attention direction, in the {"variable", "range"} shape the Awareness input uses.
+
+    Positive only: a negative score is attention to belief-INCONSISTENT teens, the
+    opposite of the bias we flag. Empty when nothing is positive.
+    """
+    supported = [kv for kv in dwell_bias_v.items()
+                 if kv[0] in SUPPORTED_VARIABLES and kv[1] > 0]
+    ranked = sorted(supported, key=lambda kv: kv[1], reverse=True)[:n]
     contributors = []
     for var, _score in ranked:
         direction = attended_direction.get(var)
@@ -225,7 +230,11 @@ def build_candidate_themes(session, ranked_variables):
 
 
 def assemble_llm_input(session):
+    """The LLM input, or None when nothing is positively biased -- there is no
+    over-attention to name, and build_candidate_themes needs a top variable."""
     awareness_input, ranked = build_awareness_input(session)
+    if not ranked:
+        return None
     return {
         "phase": session.get("phase", "realtime"),
         **awareness_input,
@@ -576,6 +585,11 @@ async def _generate_and_emit(sio, sid_by_pid, pid, client_record, teens,
             "previous_interventions": client_record.get("llm_interventions", []),
         }
         llm_input = assemble_llm_input(session)
+        if llm_input is None:
+            # Realtime stays silent; the summary wrapper turns this False into a
+            # skip, so the submit button is still released.
+            print(f"[LLM] {pid}: no positive-bias variable, nothing to surface", flush=True)
+            return False
 
         # --- log what actually goes into the model -------------------------
         _top = [c.get("variable") for c in

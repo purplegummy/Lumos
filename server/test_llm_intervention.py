@@ -18,6 +18,7 @@ from llm_intervention import (
     resolve_filter_range,
     _variable_for_filter_ranges,
     _majority_diagnosis,
+    top_variable_contributors,
     assemble_llm_input,
 )
 from llm_trigger import derive_attended_direction
@@ -223,6 +224,26 @@ def test_majority_unlabeled_dwell_returns_no():
     """Dwelled teens with no label column contribute no weight -> 'No'."""
     teens = {"x": {"screen_time_weekday": 5}, "y": {"screen_time_weekday": 2}}
     assert _majority_diagnosis(teens, {"x": 9000.0, "y": 1000.0}) == "No"
+
+
+# --- top_variable_contributors: raw, positive-only ranking ------------------
+def test_ranking_is_raw_and_positive_only():
+    """Raw descending: -0.9 no longer outranks +0.2, and 0.0 is excluded too."""
+    ranked, _ = top_variable_contributors({
+        "screen_time_weekday": -0.9,
+        "hours_sleep_weeknight": 0.2,
+        "days_physical_activity_week": 0.0,
+        "difficulty_making_friends": 0.5,
+    }, {})
+    assert [v for v, _ in ranked] == ["difficulty_making_friends",
+                                      "hours_sleep_weeknight"], ranked
+
+
+def test_all_negative_assembles_to_nothing():
+    """No positive variable -> no input at all, rather than a negative top variable."""
+    session = _load_sample(SAMPLE_FILES[0])
+    session["dwell_bias_v"] = {k: -abs(v) for k, v in session["dwell_bias_v"].items()}
+    assert assemble_llm_input(session) is None
 
 
 # --- the five sample scenarios assemble correctly ---------------------------
