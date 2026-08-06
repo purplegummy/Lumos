@@ -495,6 +495,13 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
       : {};
   }
 
+  // Alphabetical sort misorders ordinal attributes (e.g. "A little difficulty"
+  // / "A lot of difficulty" / "No difficulty" reads as Little, Lot, No). List
+  // the intended order here; anything not listed falls back to alphabetical.
+  private static readonly ORDINAL_CATEGORY_ORDER: Record<string, string[]> = {
+    difficulty_making_friends: ["No difficulty", "A little difficulty", "A lot of difficulty"],
+  };
+
   getCategoricalValues(): Record<string, string[]> {
     const data = this.userConfig["originalDataset"];
     if (!data) return {};
@@ -505,7 +512,10 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     catAttrs.forEach(attr => {
       const seen = new Set<string>();
       data.forEach(row => { if (row[attr] != null) seen.add(String(row[attr])); });
-      result[attr] = Array.from(seen).sort();
+      const order = MainActivityComponent.ORDINAL_CATEGORY_ORDER[attr];
+      result[attr] = order
+        ? order.filter(v => seen.has(v))
+        : Array.from(seen).sort();
     });
     return result;
   }
