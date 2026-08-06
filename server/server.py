@@ -211,6 +211,9 @@ async def on_commit_priors(sid, data):
             if teens and dc_metric.LABEL_ATTR in sample:
                 dmap = dc_metric.dc_map(teens, beliefs)
                 client["dc_map"] = dmap
+                # The reshaped beliefs themselves, for llm_intervention: the belief
+                # bins are what the recommended filter range is now drawn from.
+                client["beliefs"] = beliefs
                 # Detailed map (per-teen {dc, consistency, weights}) for the dwell
                 # metrics; same teens/beliefs, computed once alongside dc_map.
                 client["dc_map_detailed"] = dc_metric.dc_map_detailed(teens, beliefs)
