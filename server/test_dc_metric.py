@@ -608,6 +608,65 @@ def main():
     check("dwell_percentile_ready: <10 unique -> False",
           dc.dwell_percentile_ready(few_logs, 0, THREE_MIN) is False)
 
+    # ===================================================================== #
+    # BIN x DIAGNOSIS-GROUP AGGREGATION (bin_group_candidates), standalone
+    # ===================================================================== #
+    print("\n" + "-" * 72)
+    print("BIN x GROUP AGGREGATION")
+    print("-" * 72)
+
+    # A numeric variable whose edges span the observed range: _bucket_numerical
+    # clamps, so every one of the 200 teens lands in exactly one bin+group and the
+    # dataset shares must sum to 1 across all cells.
+    bg_var = "screen_time_weekday"
+    n_bins_bg = len(beliefs[bg_var]["binEdges"]) - 1
+
+    # Dwell on a spread of real teens (every 3rd) -- all numeric, all bucketable,
+    # so the dwell shares also sum to 1 across cells.
+    random.seed(23)
+    bg_dwell = {t: float(random.randint(100, 3000)) for t in sorted_ids[::3]}
+    cells_dwell = dc.bin_group_candidates(bg_var, beliefs, teens, dwell=bg_dwell)
+
+    check("bin_group_candidates returns 2 * n_bins cells (both groups x every bin)",
+          len(cells_dwell) == 2 * n_bins_bg)
+
+    ds_sum = sum(c["dataset_share"] for c in cells_dwell)
+    ex_sum = sum(c["exploration_share"] for c in cells_dwell)
+    ue_sum = sum(c["underexploration"] for c in cells_dwell)
+    print(f"  dataset_share sum={ds_sum:.6f}  exploration_share sum={ex_sum:.6f}  "
+          f"underexploration sum={ue_sum:+.2e}")
+    check("dataset_share sums to ~1 across all cells", abs(ds_sum - 1.0) < 1e-9)
+    check("exploration_share (dwell) sums to ~1 across all cells",
+          abs(ex_sum - 1.0) < 1e-9)
+    check("underexploration sums to ~0 across all cells (= dataset - exploration)",
+          abs(ue_sum) < 1e-9)
+
+    # VC is the believed association: identical magnitude, OPPOSITE sign between
+    # the diagnosed and not_diagnosed cell of the SAME bin, and equal to vba()[bin].
+    by_cell = {(c["group"], c["bin_index"]): c for c in cells_dwell}
+    A_bg = dc.vba(beliefs[bg_var]["countsByGroup"]["diagnosed"]["counts"],
+                  beliefs[bg_var]["countsByGroup"]["nonDiagnosed"]["counts"])
+    check("VC exactly opposite between diagnosed / not_diagnosed for every bin",
+          all(abs(by_cell[("diagnosed", b)]["vc"]
+                  + by_cell[("not_diagnosed", b)]["vc"]) < 1e-12
+              for b in range(n_bins_bg)))
+    check("diagnosed VC == vba(counts_d, counts_n)[bin] for every bin",
+          all(abs(by_cell[("diagnosed", b)]["vc"] - A_bg[b]) < 1e-12
+              for b in range(n_bins_bg)))
+
+    # Selection path: shares are over selection COUNT and still sum to 1.
+    bg_selected = sorted_ids[::5]
+    cells_sel = dc.bin_group_candidates(bg_var, beliefs, teens, selected_ids=bg_selected)
+    check("exploration_share (selection) sums to ~1 across all cells",
+          abs(sum(c["exploration_share"] for c in cells_sel) - 1.0) < 1e-9)
+
+    # Exactly one of dwell / selected_ids: both OR neither must raise ValueError.
+    check("bin_group_candidates raises when NEITHER dwell nor selected_ids given",
+          raises_value_error(lambda: dc.bin_group_candidates(bg_var, beliefs, teens)))
+    check("bin_group_candidates raises when BOTH dwell and selected_ids given",
+          raises_value_error(lambda: dc.bin_group_candidates(
+              bg_var, beliefs, teens, dwell=bg_dwell, selected_ids=bg_selected)))
+
     print("\n" + "=" * 72)
     print(f"{'ALL CHECKS PASSED' if failures == 0 else str(failures) + ' CHECK(S) FAILED'}")
     print("=" * 72)
