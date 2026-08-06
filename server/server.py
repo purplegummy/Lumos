@@ -311,7 +311,7 @@ async def on_llm_summary_request(sid, data=None):
             await llm_intervention.emit_summary_skip(SIO, sid, "metrics_failed", pid)
             return
 
-        fired, reason = llm_trigger.evaluate_summary_trigger(selection)
+        fired, reason = llm_trigger.evaluate_summary_trigger(client_record, selection, selected)
         # Reply BEFORE logging: a formatting error in the log line must not be
         # what stops the participant from ever hearing back.
         if not fired:
