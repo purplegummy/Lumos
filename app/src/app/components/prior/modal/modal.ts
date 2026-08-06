@@ -7,8 +7,8 @@ import { SessionPage } from '../../../models/config';
 import { cleanAttr } from '../../../models/attribute-labels';
 
 const CONDITION_LABEL: Record<PriorCondition, string> = {
-  diagnosed:     'teenagers who have been diagnosed with depression or anxiety',
-  not_diagnosed: 'teenagers who have not been diagnosed with depression or anxiety',
+  diagnosed:     'teenagers who <u>have</u> been diagnosed with depression or anxiety',
+  not_diagnosed: 'teenagers who <u>have not</u> been diagnosed with depression or anxiety',
 };
 
 interface AttributeCopy {

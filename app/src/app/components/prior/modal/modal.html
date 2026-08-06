@@ -25,8 +25,8 @@
           <div class="modal-instruction">
             Below are ranges of <strong>{{ cleanAttr(selectedAttribute) }}</strong>. For each range, place tokens to
             show what you believe the distribution is between two groups:
-            <span class="legend-dot legend-dot-a"></span> <strong>{{ labelFor('diagnosed') }}</strong> and
-            <span class="legend-dot legend-dot-b"></span> <strong>{{ labelFor('not_diagnosed') }}</strong>.
+            <span class="legend-dot legend-dot-a"></span> <strong [innerHTML]="labelFor('diagnosed')"></strong> and
+            <span class="legend-dot legend-dot-b"></span> <strong [innerHTML]="labelFor('not_diagnosed')"></strong>.
             You have <strong>{{ binningService.ballCount }} tokens</strong> to allocate for each group. More tokens
             means more common. You must place all tokens to proceed.
           </div>
@@ -66,7 +66,7 @@
         <div class="series-block">
           <div class="series-block-header">
             <div class="condition-question condition-question-a">
-              Among {{ labelFor('diagnosed') }}, how common do you think each {{ attrCopy.rangeNoun }} is?
+              Among <span [innerHTML]="labelFor('diagnosed')"></span>, how common do you think each {{ attrCopy.rangeNoun }} is?
             </div>
             <div class="modal-balls-counter counter-a" [class.complete]="remainingA === 0">
               <span class="modal-balls-count" [ngClass]="counterClassA">{{ remainingA }}</span>
@@ -96,7 +96,7 @@
         <div class="series-block">
           <div class="series-block-header">
             <div class="condition-question condition-question-b">
-              Among {{ labelFor('not_diagnosed') }}, how common do you think each {{ attrCopy.rangeNoun }} is?
+              Among <span [innerHTML]="labelFor('not_diagnosed')"></span>, how common do you think each {{ attrCopy.rangeNoun }} is?
             </div>
             <div class="modal-balls-counter counter-b" [class.complete]="remainingB === 0">
               <span class="modal-balls-count" [ngClass]="counterClassB">{{ remainingB }}</span>
