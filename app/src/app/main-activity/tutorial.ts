@@ -252,7 +252,7 @@ export function startElicitationIntro(): void {
         popover: {
           title: "Instructions",
           description:
-            "Before the real page, here's a practice round using one sample question. This text at the top always tells you what to do at each step. Read it as you go. Teal is for one group, orange for the other.",
+            "Before the real page, here's a practice round using one sample question. This text at the top always tells you what to do at each step. Read it as you go.",
           side: "bottom",
         },
       },
@@ -532,7 +532,7 @@ export function startTutorial(dataset?: any, isLlm: boolean = false): void {
     element: "#plot_container",
     popover: {
       title: "Selecting a Home",
-      description: "Now click on a point to select it. This is different from hovering, as the main task will ask you to select data points to complete it. Clicking a selected point again removes it from your list.",
+      description: "Now click on a point to add it to your list. Clicking a selected point again removes it from your list.",
       side: "top",
       showButtons: ["previous"],
     },
