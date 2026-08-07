@@ -1,20 +1,15 @@
 """Trigger logic for the LLM intervention condition.
 
-Three responsibilities live here, kept small so the socket layer never changes
+Two responsibilities live here, kept small so the socket layer never changes
 when the trigger policy does:
 
-1. derive_attended_direction -- implemented for real. Given the teens, the
-   per-teen dwell times, and the belief variables, decide for each variable
-   whether the participant lingered on HIGHER or LOWER values than the group as
-   a whole (for the one ordinal/categorical variable, MORE / LESS difficulty).
-
-2. evaluate_trigger -- the realtime dwell decision. Readiness gates (enough total
+1. evaluate_trigger -- the realtime dwell decision. Readiness gates (enough total
    dwell time and enough distinct teens) plus a recheck-spacing gate, then fire
    when the observed DwellBias sits at or above DWELL_PERCENTILE_THRESHOLD of its
    null distribution (dc_metric.dwell_bias_percentile). should_trigger is a thin
    bool wrapper over it for callers that don't need the reason.
 
-3. evaluate_summary_trigger -- the pre-submission summary decision: the same
+2. evaluate_summary_trigger -- the pre-submission summary decision: the same
    percentile test scored on the final selection
    (dc_metric.selection_bias_percentile) rather than on dwell.
 
@@ -40,74 +35,6 @@ DWELL_RECHECK_SECONDS = 30.0       # min extra dwell time between two percentile
 # --------------------------------------------------------------------------- #
 MIN_SELECTIONS = 5                     # too few picks makes the mean DC meaningless
 SELECTION_PERCENTILE_THRESHOLD = 0.95  # fire when SelectionBias is at/above this percentile
-
-# Ordinal encoding for the one categorical belief variable, so a "direction"
-# (more vs. less difficulty) can be derived the same way as for numeric ones.
-CATEGORY_ORDINALS = {
-    "difficulty_making_friends": {
-        "No difficulty": 0,
-        "A little difficulty": 1,
-        "A lot of difficulty": 2,
-    },
-}
-
-
-def _variable_value(teen, variable):
-    """Numeric (or ordinal-encoded) value of a teen's variable, or None.
-
-    Categorical belief variables are mapped through CATEGORY_ORDINALS; numeric
-    ones are cast to float. Anything unrecognised returns None and is skipped by
-    the caller (so a stray column can't crash direction derivation).
-    """
-    if variable not in teen:
-        return None
-    raw = teen[variable]
-    if variable in CATEGORY_ORDINALS:
-        return CATEGORY_ORDINALS[variable].get(str(raw))
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        return None
-
-
-def derive_attended_direction(teens, dwell, variables):
-    """For each variable, which end the participant's attention skewed toward.
-
-    Compares the dwell-weighted mean of the dwelled teens' values against the
-    unweighted all-teen mean. Above (or equal to) the group mean -> "higher"
-    ("more_difficulty" for the categorical variable); below -> "lower"
-    ("less_difficulty"). Variables with no usable values or no dwell are omitted.
-
-    teens:     {teen_id: {attr: value}} from bias.DATA_MAP[app_mode]["data"]
-    dwell:     {teen_id: total_dwell_ms} from dc_metric.dwell_by_teen(...)
-    variables: iterable of belief-variable names to score.
-    Returns {variable: direction}.
-    """
-    result = {}
-    for variable in variables:
-        all_values = []
-        weighted_sum = 0.0
-        total_weight = 0.0
-        for teen_id, teen in teens.items():
-            value = _variable_value(teen, variable)
-            if value is None:
-                continue
-            all_values.append(value)
-            weight = dwell.get(teen_id, 0.0)
-            if weight > 0:
-                weighted_sum += weight * value
-                total_weight += weight
-        if not all_values or total_weight == 0:
-            continue
-        all_mean = sum(all_values) / len(all_values)
-        dwell_mean = weighted_sum / total_weight
-        skewed_higher = dwell_mean >= all_mean
-        if variable in CATEGORY_ORDINALS:
-            result[variable] = "more_difficulty" if skewed_higher else "less_difficulty"
-        else:
-            result[variable] = "higher" if skewed_higher else "lower"
-    return result
-
 
 def evaluate_trigger(client_record, dwell_metrics):
     """Decide whether to fire a realtime intervention, AND say why not.

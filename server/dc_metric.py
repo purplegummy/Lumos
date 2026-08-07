@@ -670,3 +670,154 @@ def selection_bias_percentile(dc_map, selected_ids, n_trials=1000, rng=None):
         return None
     null = sample_null_selection_bias(dc_map, k, n_trials, rng)
     return float((null <= real_value).mean())
+
+
+# --------------------------------------------------------------------------- #
+# 9. bin x diagnosis-group aggregation (standalone infrastructure)
+#
+# Rolls a variable up onto the (bin x {diagnosed, not_diagnosed}) grid the
+# forthcoming "underexploration" methodology scores on. For each cell it pairs
+# the participant's believed association (VC, reused from vba) with two REAL
+# distributions over that cell: how much of the dataset lives there
+# (dataset_share) and how much of the participant's attention landed there
+# (exploration_share, from dwell time OR selection count). underexploration is
+# their difference -- a positive value flags a cell the data populates but the
+# participant has under-attended.
+#
+# STANDALONE for now: it returns EVERY cell, unranked and unfiltered. Ranking
+# and the positive-VC notify filter are deliberately left to the caller, pending
+# the dwell-vs-selection split being settled with Sung -- nothing here is wired
+# into a live path.
+# --------------------------------------------------------------------------- #
+def _belief_for_variable(beliefs, variable):
+    """The single variable's belief out of the {attr: belief} dict or [belief] list."""
+    for vb in _belief_list(beliefs):
+        if vb["attribute"] == variable:
+            return vb
+    raise KeyError(f"[bin_group_candidates] no belief for variable {variable!r}")
+
+
+def _bin_index_for(variable_belief, teen):
+    """Bin index a teen's value falls in for this variable, or None.
+
+    Numerical values go through _bucket_numerical (which clamps out-of-range into
+    the nearest edge bin, so a real teen never returns None); categorical values
+    go through _bucket_categorical, which returns None for a value outside the
+    elicited category set (that teen then contributes to no cell).
+    """
+    attr = variable_belief["attribute"]
+    if attr not in teen:
+        return None
+    raw = teen[attr]
+    if _is_categorical(variable_belief):
+        return _bucket_categorical(variable_belief["categories"], raw)
+    return _bucket_numerical(variable_belief["binEdges"], bias_util.cast_to_num(raw))
+
+
+def _group_of(teen):
+    """A teen's ACTUAL diagnosis group key: 'diagnosed' or 'not_diagnosed'."""
+    return "diagnosed" if str(teen[LABEL_ATTR]) == DIAGNOSED_VALUE else "not_diagnosed"
+
+
+def bin_group_candidates(variable, beliefs, teens, dwell=None, selected_ids=None):
+    """Per-(bin x diagnosis-group) rollup of one variable. Returns a list of cells.
+
+    One dict per (bin, group) cell, 2 * n_bins cells in all, each carrying:
+
+        variable            the attribute name
+        bin_index           0-based bin position
+        bin_label           display string ("[lo, hi)" numeric / category label)
+        bin_range           [lo, hi] numeric, or the category label (categorical)
+        group               "diagnosed" | "not_diagnosed" (the ACTUAL label group)
+        vc                  vba(counts_d, counts_n)[bin] for the diagnosed group,
+                            negated for not_diagnosed -- the participant's believed
+                            association, identical in magnitude across the two
+                            groups of a bin and opposite in sign.
+        dataset_share       fraction of ALL teens that sit in this bin+group.
+        exploration_share   this cell's share of the participant's attention:
+                            share of total dwell-ms (dwell) OR of selection count
+                            (selected_ids).
+        underexploration    dataset_share - exploration_share (>0 => under-attended).
+
+    Exactly ONE of dwell / selected_ids must be given (both or neither raises).
+
+    Shares are over ALL cells, not per group: dataset_share sums to 1 across the
+    whole list when every teen buckets (categorical values outside the elicited
+    set fall into no cell), and exploration_share sums to 1 when every dwelled/
+    selected teen buckets -- so underexploration sums to ~0.
+
+    beliefs: {attribute: belief} dict or [belief] list (the dc_metric contract).
+    teens:   {teen_id: {attr: value, ...}} including LABEL_ATTR.
+    dwell:   {teen_id: dwell_ms} from dwell_by_teen (mutually exclusive with below).
+    selected_ids: iterable of selected teen ids (mutually exclusive with dwell).
+
+    FAIL-LOUD (mirrors dwell_bias): a dwelled/selected id absent from `teens`
+    raises KeyError rather than being silently dropped. Returns cells UNRANKED and
+    UNFILTERED -- ordering and any positive-VC filter are the caller's job.
+    """
+    if (dwell is None) == (selected_ids is None):
+        raise ValueError(
+            "bin_group_candidates: pass exactly one of dwell= or selected_ids=")
+
+    vb = _belief_for_variable(beliefs, variable)
+    cbg = vb["countsByGroup"]
+    counts_d = cbg["diagnosed"]["counts"]
+    counts_n = cbg["nonDiagnosed"]["counts"]
+    associations = vba(counts_d, counts_n)              # one value per bin
+    categorical = _is_categorical(vb)
+    n_bins = len(vb["categories"]) if categorical else len(vb["binEdges"]) - 1
+
+    groups = ("diagnosed", "not_diagnosed")
+
+    # --- dataset population per cell (over ALL teens) ------------------------
+    pop = {(g, b): 0 for g in groups for b in range(n_bins)}
+    for teen in teens.values():
+        idx = _bin_index_for(vb, teen)
+        if idx is None:
+            continue
+        pop[(_group_of(teen), idx)] += 1
+    n_teens = len(teens)
+
+    # --- attention per cell (dwell-ms or selection count) -------------------
+    attention = {(g, b): 0.0 for g in groups for b in range(n_bins)}
+    if dwell is not None:
+        attention_total = float(sum(dwell.values()))
+        for tid, ms in dwell.items():
+            idx = _bin_index_for(vb, teens[tid])        # KeyError if id unknown
+            if idx is None:
+                continue
+            attention[(_group_of(teens[tid]), idx)] += float(ms)
+    else:
+        attention_total = float(len(selected_ids))
+        for tid in selected_ids:
+            idx = _bin_index_for(vb, teens[tid])        # KeyError if id unknown
+            if idx is None:
+                continue
+            attention[(_group_of(teens[tid]), idx)] += 1.0
+
+    cells = []
+    for b in range(n_bins):
+        if categorical:
+            bin_range = vb["categories"][b]
+            bin_label = str(bin_range)
+        else:
+            lo, hi = vb["binEdges"][b], vb["binEdges"][b + 1]
+            bin_range = [lo, hi]
+            bin_label = f"[{lo}, {hi}{']' if b == n_bins - 1 else ')'}"
+        for g in groups:
+            vc = associations[b] if g == "diagnosed" else -associations[b]
+            dataset_share = pop[(g, b)] / n_teens if n_teens else 0.0
+            exploration_share = (attention[(g, b)] / attention_total
+                                 if attention_total > 0 else 0.0)
+            cells.append({
+                "variable": variable,
+                "bin_index": b,
+                "bin_label": bin_label,
+                "bin_range": bin_range,
+                "group": g,
+                "vc": float(vc),
+                "dataset_share": dataset_share,
+                "exploration_share": exploration_share,
+                "underexploration": dataset_share - exploration_share,
+            })
+    return cells
