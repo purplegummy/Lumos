@@ -6,10 +6,11 @@ constraints, theme construction and input shape are the experimental stimulus
 and are reproduced verbatim -- do not reword them.
 
 Two halves:
-  1. Assembly -- turn the pre-computed signals (dwell_bias_v, attended
-     direction, diagnosis focus, and the bin x group candidate cells from
-     dc_metric.bin_group_candidates) into the structured "LLM input" the prompt
-     expects. The theme's filter comes from the participant's OWN belief bins.
+  1. Assembly -- turn the pre-computed signals (dwell_bias_v, diagnosis focus,
+     and the bin x group candidate cells from dc_metric.bin_group_candidates)
+     into the structured "LLM input" the prompt expects. Both the summary and the
+     recommendation read the same grid, so they name ranges from the participant's
+     OWN belief bins and always concern the same variable.
   2. Generation -- call Claude (claude-sonnet-5, low effort) with a
      schema-enforced JSON response.
 
@@ -27,7 +28,6 @@ from dotenv import load_dotenv
 import bias_util
 import dc_metric
 import firebase_logger
-import llm_trigger
 
 # Load ANTHROPIC_API_KEY (and anything else) from server/.env if present. Safe
 # no-op when the file is absent; never overrides an already-set environment.
@@ -58,17 +58,11 @@ SUPPORTED_VARIABLES = {
     "days_physical_activity_week",
     "difficulty_making_friends",           # the one categorical belief variable
 }
-RANGE_PHRASES = {                         # (variable, direction) -> natural-language phrase
-    ("screen_time_weekday", "higher"): "longer screen time",
-    ("screen_time_weekday", "lower"):  "shorter screen time",
-    ("hours_sleep_weeknight", "higher"): "longer sleep",
-    ("hours_sleep_weeknight", "lower"):  "shorter sleep",
-    ("days_physical_activity_week", "higher"): "more physical activity",
-    ("days_physical_activity_week", "lower"):  "less physical activity",
-    ("difficulty_making_friends", "more_difficulty"): "limited in-person social time",
-    ("difficulty_making_friends", "less_difficulty"): "more in-person social time",
-}
 SUMMARY_EVENT = "llm_summary"
+
+# A belief bin can be narrow enough that one bin plus one diagnosis group leaves
+# almost nothing on screen. Below this, the recommended range widens.
+MIN_RECOMMENDED_TEENS = 5
 
 DEFAULT_TONE_CONSTRAINTS = [
     "Do not mention confirmation bias",
@@ -84,6 +78,18 @@ DEFAULT_TONE_CONSTRAINTS = [
 def _diagnosis_phrase(value):
     """'Yes' -> 'a depression/anxiety diagnosis', 'No' -> 'no depression/anxiety diagnosis'."""
     return "a depression/anxiety diagnosis" if value == "Yes" else "no depression/anxiety diagnosis"
+
+
+def _group_for(diagnosis_focus):
+    """'Yes'/'No' -> the cell grid's group key."""
+    return "diagnosed" if diagnosis_focus == "Yes" else "not_diagnosed"
+
+
+def _plain(value):
+    """5.0 -> 5 and 4.8999999999999995 -> 4.9. Bin edges are built by repeated
+    addition, so they carry float noise. Prose only; the filter keeps full precision."""
+    value = round(float(value), 2)
+    return int(value) if value.is_integer() else value
 
 
 def select_candidate_cell(cells):
@@ -143,33 +149,112 @@ def _diagnosis_filter_for_filter_ranges(candidates, filter_ranges):
     return None
 
 
-def top_variable_contributors(dwell_bias_v, attended_direction, n=3):
-    """Top-n positive-DwellBias_v variables, raw descending, each paired with its
-    attention direction, in the {"variable", "range"} shape the Awareness input uses.
+def top_variable(dwell_bias_v):
+    """The single most positively-biased supported variable, or None.
 
     Positive only: a negative score is attention to belief-INCONSISTENT teens, the
-    opposite of the bias we flag. Empty when nothing is positive.
+    opposite of the bias we flag. Both halves of the intervention are about this one
+    variable -- the summary names the range they over-attended, the recommendation
+    the range they skipped -- so the two can never disagree about the subject.
     """
     supported = [kv for kv in dwell_bias_v.items()
                  if kv[0] in SUPPORTED_VARIABLES and kv[1] > 0]
-    ranked = sorted(supported, key=lambda kv: kv[1], reverse=True)[:n]
-    contributors = []
-    for var, _score in ranked:
-        direction = attended_direction.get(var)
-        phrase = RANGE_PHRASES.get((var, direction), direction)
-        contributors.append({"variable": READABLE_NAMES.get(var, var), "range": phrase})
-    return ranked, contributors
+    return max(supported, key=lambda kv: kv[1])[0] if supported else None
 
 
-def build_awareness_input(session):
-    """The exact 'Structured Input for the LLM - Awareness' shape from the slides."""
-    ranked, contributors = top_variable_contributors(
-        session["dwell_bias_v"], session["attended_direction"]
-    )
+def over_attended_cells(cells, group, n=3):
+    """The n cells of one group the participant attended MOST beyond its share of
+    the dataset. The mirror of select_candidate_cell over the same grid.
+
+    Restricted to the focus group so the characteristics named cannot describe a
+    different group from the one current_focus.diagnosis_status names.
+    """
+    over = [c for c in cells if c["underexploration"] < 0 and c["group"] == group]
+    return sorted(over, key=lambda c: c["underexploration"])[:n]
+
+
+def _bin_teens(cell, n_teens):
+    """Teens of this cell's group sitting in its bin. dataset_share already is that
+    count over the whole dataset, so bin_group_candidates has done the bucketing --
+    including its clamping of out-of-range values, which re-counting would miss."""
+    return round(cell["dataset_share"] * n_teens)
+
+
+def widened_span(cell, cells, n_teens):
+    """The contiguous run of cells to filter on: the chosen one, grown into adjacent
+    bins of the SAME group until they hold MIN_RECOMMENDED_TEENS between them.
+
+    Only the range moves, never the group, so the recommendation stays about the
+    same thing -- and the count is inside the group for the same reason, since the
+    filter is a conjunction and the other group is never on screen.
+
+    Runs AFTER selection: a nearly empty cell may well be the most belief-
+    inconsistent one, so dropping it earlier would defeat the ranking. Grows toward
+    whichever neighbour adds more teens, and returns the full width if even that
+    falls short of the minimum.
+    """
+    row = sorted((c for c in cells if c["group"] == cell["group"]),
+                 key=lambda c: c["bin_index"])
+    lo = hi = next(i for i, c in enumerate(row) if c["bin_index"] == cell["bin_index"])
+    count = _bin_teens(row[lo], n_teens)
+    while count < MIN_RECOMMENDED_TEENS and (lo > 0 or hi < len(row) - 1):
+        below = _bin_teens(row[lo - 1], n_teens) if lo > 0 else -1
+        above = _bin_teens(row[hi + 1], n_teens) if hi < len(row) - 1 else -1
+        if below >= above:
+            lo -= 1
+            count += below
+        else:
+            hi += 1
+            count += above
+    return row[lo:hi + 1]
+
+
+def filter_ranges_for(span, values):
+    """A span of bins as something applyThemeFilter can drop into a filterModel.
+
+    Categorical bins are their own labels and the multiselect model is a list of
+    them. A numeric span is the slider's [lo, hi] with the top edge clamped:
+    bin_group_candidates reports bin EDGES and the slider includes both ends, so
+    handing the edges over as-is also filters in the next bin's first value. On
+    days_physical_activity_week that turned a 39-teen bin into a 57-teen filter.
+    """
+    if not isinstance(span[0]["bin_range"], list):
+        return [c["bin_range"] for c in span]
+    lo = span[0]["bin_range"][0]
+    hi = span[-1]["bin_range"][1]
+    if not span[-1]["bin_label"].endswith("]"):     # last bin is closed already
+        inside = [v for v in values if lo <= v < hi]
+        hi = max(inside) if inside else hi
+    return [lo, hi]
+
+
+def _range_phrase(variable, span, values):
+    """One span as prose: 'screen time in the 4 to 6 range', or the category labels."""
+    name = READABLE_NAMES.get(variable, variable)
+    ranges = filter_ranges_for(span, values)
+    if not isinstance(span[0]["bin_range"], list):
+        return f"{name} of " + " or ".join(f'"{label}"' for label in ranges)
+    lo, hi = (_plain(v) for v in ranges)
+    return f"{name} of {lo}" if lo == hi else f"{name} in the {lo} to {hi} range"
+
+
+def build_awareness_input(session, variable):
+    """The exact 'Structured Input for the LLM - Awareness' shape from the slides.
+
+    Narrowed to the one variable the recommendation is about, so current_focus
+    describes the same thing the participant is being pointed away from.
+    """
     diagnosis_focus = session["diagnosis_focus"]  # "Yes" or "No"
+    group = _group_for(diagnosis_focus)
+    values = session.get("bin_values", [])
+    contributors = [
+        {"variable": READABLE_NAMES.get(variable, variable),
+         "range": _range_phrase(variable, [cell], values)}
+        for cell in over_attended_cells(session.get("bin_cells", []), group)
+    ]
     diagnosis_status = ("diagnosed with depression/anxiety" if diagnosis_focus == "Yes"
                         else "not diagnosed with depression/anxiety")
-    awareness_input = {
+    return {
         "task_context": TASK_CONTEXT,
         "current_focus": {
             "diagnosis_status": diagnosis_status,
@@ -186,64 +271,44 @@ def build_awareness_input(session):
         },
         "tone_constraints": session.get("tone_constraints", DEFAULT_TONE_CONSTRAINTS),
     }
-    return awareness_input, ranked
 
 
-def _inclusive_range(cell, values):
-    """A numeric bin as the INCLUSIVE [lo, hi] the filter slider applies.
-
-    bin_group_candidates reports a bin's EDGES, and every bin but the last is
-    half-open -- bin_label spells it out as "[0, 1)". The slider includes both
-    ends, so handing the edges straight over also filters in the next bin's first
-    value: on days_physical_activity_week that turned the 39-teen [0, 1) bin into
-    a 57-teen filter, wider than the cell we actually scored. Clamp the top to the
-    largest value the bin really holds.
-    """
-    lo, hi = cell["bin_range"]
-    if cell["bin_label"].endswith("]"):      # last bin, already closed
-        return [lo, hi]
-    inside = [v for v in values if lo <= v < hi]
-    return [lo, max(inside)] if inside else [lo, hi]
-
-
-def build_candidate_themes(session, ranked_variables):
+def build_candidate_themes(session, variable):
     """The 'Mitigation' candidate_themes: one theme from the one cell
     select_candidate_cell picks out of session["bin_cells"], or [] if none qualifies.
 
-    The cell fixes BOTH halves of the filter -- its bin gives the range, its group
+    The cell fixes BOTH halves of the filter -- its bins give the range, its group
     gives the diagnosis status -- so the theme stays the conjunction the frontend
-    already applies. A categorical bin is a bare label and the multiselect model
-    wants a list; a numeric bin needs its top edge clamped (see _inclusive_range).
+    already applies.
     """
-    top_var, _score = ranked_variables[0]
-    cell = select_candidate_cell(session.get("bin_cells", []))
+    cells = session.get("bin_cells", [])
+    cell = select_candidate_cell(cells)
     if cell is None:
         return []
     diagnosis = "Yes" if cell["group"] == "diagnosed" else "No"
-    name = READABLE_NAMES.get(top_var, top_var)
-    numeric = isinstance(cell["bin_range"], list)
-    where = (f"{name} in {cell['bin_label']}" if numeric
-             else f"{name} in the \"{cell['bin_label']}\" group")
+    values = session.get("bin_values", [])
+    span = widened_span(cell, cells, session.get("n_teens", 0))
     return [{
-        "raw_theme": f"teens with {where} who have {_diagnosis_phrase(diagnosis)}",
-        "predicate": {top_var: cell["bin_label"], "diagnosis": diagnosis.lower()},
-        "filter_ranges": (_inclusive_range(cell, session.get("bin_values", []))
-                          if numeric else [cell["bin_range"]]),
+        "raw_theme": f"teens with {_range_phrase(variable, span, values)} who have "
+                     f"{_diagnosis_phrase(diagnosis)}",
+        "predicate": {variable: [c["bin_label"] for c in span],
+                      "diagnosis": diagnosis.lower()},
+        "filter_ranges": filter_ranges_for(span, values),
     }]
 
 
 def assemble_llm_input(session):
     """The LLM input, or None when there is nothing to recommend: no
     positively-biased variable to name, or no candidate cell to point them at."""
-    awareness_input, ranked = build_awareness_input(session)
-    if not ranked:
+    variable = top_variable(session["dwell_bias_v"])
+    if variable is None:
         return None
-    candidate_themes = build_candidate_themes(session, ranked)
+    candidate_themes = build_candidate_themes(session, variable)
     if not candidate_themes:
         return None
     return {
         "phase": session.get("phase", "realtime"),
-        **awareness_input,
+        **build_awareness_input(session, variable),
         "candidate_themes": candidate_themes,
         "previous_interventions": session.get("previous_interventions", []),
     }
@@ -566,9 +631,9 @@ async def _generate_and_emit(sio, sid_by_pid, pid, client_record, teens,
     participant had no live socket" -- the caller has to treat all three the same
     way, because in all three the participant never saw anything.
 
-    Everything downstream of the weights is phase-agnostic: derive_attended_direction
-    and _majority_diagnosis both take a {teen_id: weight} map, so the realtime and
-    summary paths differ only in the arguments above.
+    Everything downstream of the weights is phase-agnostic: _majority_diagnosis
+    takes a {teen_id: weight} map, so the realtime and summary paths differ only in
+    the arguments above.
 
     attention is the one kwarg bin_group_candidates takes for the same split:
     {"dwell": ...} realtime, {"selected_ids": ...} at submit. It stays separate from
@@ -582,32 +647,27 @@ async def _generate_and_emit(sio, sid_by_pid, pid, client_record, teens,
     """
     delivered = False   # set before the try: the except clauses read it
     try:
-        variables = list(bias_v.keys())
-
-        attended_direction = llm_trigger.derive_attended_direction(teens, weights, variables)
         diagnosis_focus = _majority_diagnosis(teens, weights)
 
-        # The cells belong to ONE variable, so the ranking runs first here and
-        # again inside build_awareness_input. It is pure and cheap.
-        ranked, _contributors = top_variable_contributors(bias_v, attended_direction)
+        # One variable drives the whole intervention, so it is resolved once here
+        # and its cell grid is what assembly reads.
+        variable = top_variable(bias_v)
         bin_cells, bin_values = [], []
-        if ranked:
-            top_var = ranked[0][0]
+        if variable is not None:
             bin_cells = dc_metric.bin_group_candidates(
-                top_var, client_record["beliefs"], teens, **attention)
-            bin_values = [bias_util.cast_to_num(t[top_var])
-                          for t in teens.values() if top_var in t]
+                variable, client_record["beliefs"], teens, **attention)
+            numeric = isinstance(bin_cells[0]["bin_range"], list)
+            bin_values = [bias_util.cast_to_num(t[variable]) if numeric else t[variable]
+                          for t in teens.values() if variable in t]
 
         session = {
             "phase": phase,
             # Carries selection-weighted scores on the final_check path. The key
             # keeps its dwell name so the llm_samples fixtures stay valid.
             "dwell_bias_v": bias_v,
-            "attended_direction": attended_direction,
             "bin_cells": bin_cells,
-            # The variable's real values, so a half-open bin resolves to a filter
-            # that stops short of the next bin (see _inclusive_range).
             "bin_values": bin_values,
+            "n_teens": len(teens),
             "diagnosis_focus": diagnosis_focus,
             "trigger_signal": trigger_signal,
             "previous_interventions": client_record.get("llm_interventions", []),
@@ -617,7 +677,7 @@ async def _generate_and_emit(sio, sid_by_pid, pid, client_record, teens,
             # Realtime stays silent; the summary wrapper turns this False into a
             # skip, so the submit button is still released.
             print(f"[LLM] {pid}: nothing to surface "
-                  f"(ranked={len(ranked)}, cells={len(bin_cells)})", flush=True)
+                  f"(variable={variable}, cells={len(bin_cells)})", flush=True)
             return False
 
         # --- log what actually goes into the model -------------------------
@@ -726,7 +786,7 @@ def _majority_diagnosis(teens, weights):
     """WEIGHTED majority diagnosis status among the teens carrying weight.
 
     Weighted by whatever drove this generation, consistent with the rest of the
-    pipeline (dwell_bias, dwell_bias_v, derive_attended_direction).
+    pipeline (dwell_bias, dwell_bias_v).
 
     On the REALTIME path the weights are dwell times, and that matters: a plain
     head count would let diagnosis_focus contradict the dwell signal that fired
