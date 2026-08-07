@@ -283,7 +283,14 @@ def compute_dwell_metrics(detailed_map, bias_logs):
     per-teen {dc, consistency, weights} map, never recomputed) and the same
     bias_logs. dwell_by_teen sums interactionDuration over scalar mouseout_item
     entries; dwell_bias / dwell_bias_v then weight DC (point-level) and per-variable
-    consistency (variable-level) by that dwell. dwell_bias_v stays RAW (weighted=False).
+    consistency (variable-level) by that dwell.
+
+    dwell_bias_v is asked for the js-WEIGHTED form. DC is itself a js-weighted sum,
+    so the raw per-variable scores sit on a different scale from the point-level
+    DwellBias they are supposed to break down. Weighted, they decompose it exactly
+    (sum_v score[v] / sum_v w_v == dwell_bias), which is what makes them readable as
+    each variable's contribution. Set here rather than in dc_metric: the flag exists
+    so callers can choose, and the default stays Lester's.
 
     Returns a plain dict for embedding in the interaction response's output_data:
 
@@ -299,7 +306,7 @@ def compute_dwell_metrics(detailed_map, bias_logs):
     dwell = dc_metric.dwell_by_teen(bias_logs)
     return {
         "dwell_bias": dc_metric.dwell_bias(detailed_map, dwell),
-        "dwell_bias_v": dc_metric.dwell_bias_v(detailed_map, dwell),
+        "dwell_bias_v": dc_metric.dwell_bias_v(detailed_map, dwell, weighted=True),
         "n_dwelled": len(dwell),
     }
 

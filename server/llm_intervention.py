@@ -512,6 +512,10 @@ def selection_metrics(detailed_map, selected_ids):
     and the per-variable version is the breakdown that compute_phase_metrics does
     not expose but the prompt assembly needs.
 
+    weighted=True for the same reason compute_dwell_metrics passes it: the scores
+    only read as per-variable contributions to the scalar if they are on its scale.
+    The two paths set it separately -- this one does not go through dc_adapter.
+
     Lives here rather than in dc_adapter because that module is out of scope for
     this feature.
 
@@ -521,7 +525,7 @@ def selection_metrics(detailed_map, selected_ids):
     weights = {teen_id: 1.0 for teen_id in selected_ids}
     return {
         "selection_bias": dc_metric.dwell_bias(detailed_map, weights),
-        "selection_bias_v": dc_metric.dwell_bias_v(detailed_map, weights),
+        "selection_bias_v": dc_metric.dwell_bias_v(detailed_map, weights, weighted=True),
         "n_selected": len(weights),
     }
 

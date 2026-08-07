@@ -472,12 +472,14 @@ def dwell_bias_v(detailed_map, dwell, weighted=False):
     consistency stored in detailed_map. Same dwell weights and same fixed all-200
     baseline (computed per variable) as the point-level DwellBias.
 
-    raw-vs-weighted VC (FLAGGED for confirmation): by default VC_{i,v} is the RAW
-    per-variable consistency C_{i,v} ("belief-consistency of a variable in a data
-    point"). Pass weighted=True to use the js-weighted contribution w_v * C_{i,v}
-    instead -- the stored weights make this a one-line switch. Because w_v is
-    teen-independent, with weighted=True the per-variable scores decompose the
-    point-level DwellBias exactly: sum_v DwellBias_v[v] / sum_v(w_v) == DwellBias.
+    raw-vs-weighted VC: by default VC_{i,v} is the RAW per-variable consistency
+    C_{i,v} ("belief-consistency of a variable in a data point"). Pass weighted=True
+    to use the js-weighted contribution w_v * C_{i,v} instead -- the stored weights
+    make this a one-line switch. Because w_v is teen-independent, with weighted=True
+    the per-variable scores decompose the point-level DwellBias exactly:
+    sum_v DwellBias_v[v] / sum_v(w_v) == DwellBias. CONFIRMED (Shiyao): the LLM
+    intervention passes weighted=True at both call sites so its ranking is on the
+    same scale as the scalar; the default here is unchanged.
 
     FAIL-LOUD: a dwelled id absent from detailed_map raises KeyError.
 
