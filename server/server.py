@@ -264,6 +264,18 @@ async def on_task_submitted(sid, data):
                 distinct_vals = sorted(set(round(v, 4) for v in dc_map_cached.values()))
                 print(f"[DC-ARR] pid={pid} | n={len(dc_map_cached)} distinct={len(distinct_vals)} | "
                       f"values={'  '.join(f'{v:.4f}' for v in dc_map_cached.values())}", flush=True)
+                # Persist the submission-time SelectionBias percentile and the
+                # DC-ARR data, which otherwise live only in the prints above.
+                firebase_logger.save_logs(pid, [{
+                    "kind": "selection_percentile",
+                    "participant_id": pid,
+                    "created_at": bias_util.get_current_time(),
+                    "selection_bias_percentile": pct["selection_bias_percentile"],
+                    "n_selected": len(subjects),
+                    "dc_map_n": len(dc_map_cached),
+                    "dc_map_distinct": len(distinct_vals),
+                    "dc_map_values": list(dc_map_cached.values()),
+                }])
             except Exception as e:
                 print(f"[SEL%] compute failed: {e}", flush=True)
 
@@ -323,6 +335,19 @@ async def on_llm_summary_request(sid, data=None):
         print(f"[LLM] {pid}: summary {'triggered' if fired else 'not triggered'} "
               f"({reason}, selection_bias={selection['selection_bias']:+.4f}, "
               f"n_selected={selection['n_selected']})", flush=True)
+        # Persist the raw selection scores + outcome for BOTH fire and skip: the
+        # skip record carried only the reason text, and the generated-summary
+        # record carries no raw scores.
+        firebase_logger.save_logs(pid, [{
+            "kind": "summary_trigger",
+            "participant_id": pid,
+            "created_at": bias_util.get_current_time(),
+            "fired": fired,
+            "reason": reason,
+            "selection_bias": selection["selection_bias"],
+            "selection_bias_v": selection["selection_bias_v"],
+            "n_selected": selection["n_selected"],
+        }])
         if not fired:
             return
 
@@ -436,7 +461,20 @@ async def on_interaction(sid, data):
             client_record = CLIENTS[pid]
             teens = bias.DATA_MAP.get(app_mode, {}).get("data", {})
             _dwell = _out["dwell_bias"]
-            fired, reason = llm_trigger.evaluate_trigger(client_record, _dwell)
+            fired, reason, trace = llm_trigger.evaluate_trigger(client_record, _dwell)
+            # Persist the FULL trigger trace on every evaluation. Deliberately not
+            # throttled like the reason-change console print below -- a complete
+            # trace is what trigger-policy analysis needs.
+            firebase_logger.save_logs(pid, [{
+                "kind": "dwell_trigger",
+                "participant_id": pid,
+                "created_at": bias_util.get_current_time(),
+                "fired": fired,
+                "reason": reason,
+                "dwell_bias_percentile": trace["dwell_bias_percentile"],
+                "n_dwelled": trace["n_dwelled"],
+                "total_dwell_seconds": trace["total_dwell_seconds"],
+            }])
             if fired:
                 client_record["llm_last_fired_at"] = bias_util.get_current_time()
                 LLM_LAST_SKIP.pop(pid, None)
