@@ -27,9 +27,11 @@ def _cell(vc, underexploration, label="x", index=0, bin_range=None, group="diagn
 
 def _row(counts):
     """One group's grid: bin i covers [i, i+1) and holds counts[i] teens sitting at
-    value i. Only bin 0 is underexplored, so selection is deterministic."""
+    value i. Only bin 0 is underexplored, so selection is deterministic; the rest
+    are over-attended and belief-consistent, which is what the summary names."""
     total = sum(counts)
-    cells = [_cell(-0.5, 0.1 if i == 0 else -0.1, f"[{i}, {i + 1})", index=i,
+    cells = [_cell(-0.5 if i == 0 else 0.5, 0.1 if i == 0 else -0.1,
+                   f"[{i}, {i + 1})", index=i,
                    bin_range=[i, i + 1], dataset_share=n / total)
              for i, n in enumerate(counts)]
     return cells, [i for i, n in enumerate(counts) for _ in range(n)]
@@ -235,6 +237,15 @@ def test_summary_names_ranges_from_the_over_attended_side():
     focus = assemble_llm_input(_session({"screen_time_weekday": 0.4}, cells, values))
     assert focus["current_focus"]["main_characteristics"] == [
         "screen time of 1", "screen time of 2", "screen time of 3"], focus["current_focus"]
+
+
+def test_summary_skips_over_attended_cells_that_contradict_the_belief():
+    """Lingering on a range that argues against your beliefs is not confirmation."""
+    cells, values = _row([1, 2, 4, 8])
+    for cell in cells[1:]:
+        cell["vc"] = -0.5
+    focus = assemble_llm_input(_session({"screen_time_weekday": 0.4}, cells, values))
+    assert focus["current_focus"]["main_characteristics"] == [], focus["current_focus"]
 
 
 def test_summary_and_recommendation_share_the_variable():

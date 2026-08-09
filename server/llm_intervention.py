@@ -174,8 +174,14 @@ def over_attended_cells(cells, group, n=3):
 
     Restricted to the focus group so the characteristics named cannot describe a
     different group from the one current_focus.diagnosis_status names.
+
+    Belief-CONSISTENT only (vc > 0). Over-attention on its own is not the bias the
+    summary is about: a range the participant lingered on that contradicts their
+    beliefs is the opposite of confirmation, and naming it would have the message
+    accuse them of favouring their expectations while citing evidence against it.
     """
-    over = [c for c in cells if c["underexploration"] < 0 and c["group"] == group]
+    over = [c for c in cells
+            if c["underexploration"] < 0 and c["vc"] > 0 and c["group"] == group]
     return sorted(over, key=lambda c: c["underexploration"])[:n]
 
 
@@ -371,7 +377,8 @@ toward one pattern, and has already worked out which variables and which contras
 surfacing -- you are not deciding any of that, only writing the natural-language output.
 
 You will receive a JSON payload with:
-- "current_focus": the diagnosis direction and 1-3 characteristics the participant has been focused on.
+- "current_focus": the diagnosis direction and 0-3 characteristics the participant has been focused on.
+  "main_characteristics" can be empty: then name the diagnosis direction alone and invent no range.
 - "evidence_for_focus": why this was triggered, grounding your summary so it is not invented.
 - "candidate_themes": 1-2 pre-computed contrastive themes, each with a "raw_theme" description, a
   "predicate", and already-resolved "filter_ranges" (numeric range or category list) -- pass these
