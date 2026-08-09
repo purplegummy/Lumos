@@ -35,6 +35,10 @@ declare var vegaEmbed: any;
 // hitting this means the socket dropped, not that the model was slow.
 const LLM_SUMMARY_TIMEOUT_MS = 25000;
 
+// A reminder left up indefinitely describes behaviour the participant has long
+// since moved on from, and makes the next one easy to miss.
+const LLM_PANEL_TIMEOUT_MS = 30000;
+
 @Component({
   selector: "main-activity",
   templateUrl: "./component.html",
@@ -66,6 +70,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   llmSummaryLoading = false;
   private llmSummaryRequested = false;
   private llmSummaryTimer: any = null;
+  private llmPanelTimer: any = null;
   // Tutorial's LLM panel has no real server round trip to drive it (chatService
   // is a no-op in tutorial mode), so it's derived live from whatever point is
   // currently hovered instead of the one canned message the real study gets
@@ -375,6 +380,22 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
       this.llmSummaryRequested = false;
       this.showSubmitConfirm = true;
     }
+  }
+
+  /**
+   * Close the realtime panel, on its own timeout or by hand -- one path for
+   * both, so a close button behaves exactly like letting it run out.
+   *
+   * Tells the server, which measures the wait for the next intervention in new
+   * hover time and so has no way of knowing on its own that the participant has
+   * stopped reading this one.
+   */
+  dismissLlmPanel(): void {
+    clearTimeout(this.llmPanelTimer);
+    this.llmIntervention = null;
+    this.chatService.sendLlmDismissed({
+      participantId: this.global['participantId'],
+    });
   }
 
   /** Apply a summary theme's filters and step back into the task to revise. */
@@ -801,6 +822,9 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
 
       context.chatService.getLlmIntervention().subscribe((obj) => {
         context.llmIntervention = obj;
+        clearTimeout(context.llmPanelTimer);
+        context.llmPanelTimer = setTimeout(
+          () => context.dismissLlmPanel(), LLM_PANEL_TIMEOUT_MS);
       });
 
       context.chatService.getLlmSummary().subscribe((obj) => {

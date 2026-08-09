@@ -6,6 +6,9 @@
       <h5 class="display-inline">
         <span class="badge badge-secondary">Suggestions</span>
       </h5>
+      <div class="llm-timer" *ngIf="showTimer">
+        <div class="llm-timer-fill" *ngFor="let t of [tick]"></div>
+      </div>
     </header>
 
     <div class="llm-summary">{{ intervention.awareness_summary }}</div>

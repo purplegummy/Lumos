@@ -111,6 +111,18 @@ def should_trigger(client_record, dwell_metrics):
     return fired
 
 
+def reset_dwell_watermark(client_record):
+    """Restart the recheck window from the dwell accumulated so far.
+
+    Called when the participant's panel goes away. The spacing above is measured
+    in NEW hover time, so without this the seconds spent reading one intervention
+    count toward earning the next one -- they would be paying for a reminder they
+    were still looking at.
+    """
+    dwell = dc_metric.dwell_by_teen(client_record.get("bias_logs", []))
+    client_record["dwell_last_checked_seconds"] = sum(dwell.values()) / 1000.0
+
+
 def evaluate_summary_trigger(client_record, selection_metrics, selected_ids):
     """Decide whether to show the pre-submission summary, AND say why not.
 

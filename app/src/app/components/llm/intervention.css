@@ -17,6 +17,28 @@
   flex-shrink: 0;
 }
 
+/* How long this suggestion has left. Duration must match the parent's
+   LLM_PANEL_TIMEOUT_MS; the bar is decoration, the setTimeout there is what
+   actually dismisses. */
+.llm-timer {
+  height: 2px;
+  background: #eee;
+  border-radius: 1px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.llm-timer-fill {
+  height: 100%;
+  background: #bbb;
+  animation: llm-timer-drain 30s linear forwards;
+}
+
+@keyframes llm-timer-drain {
+  from { width: 100%; }
+  to { width: 0; }
+}
+
 .llm-summary {
   font-size: 0.85rem;
   color: #1a1a1a;
