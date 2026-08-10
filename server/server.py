@@ -228,6 +228,23 @@ async def on_commit_priors(sid, data):
         raise
 
 
+@SIO.on('on_participant_refreshed')
+async def on_participant_refreshed(sid, data):
+    """Log a page-refresh event. Only meaningful for Prolific participants --
+    their participantId is stable across a refresh (derived from the
+    PROLIFIC_PID URL param), whereas random IDs are regenerated on every
+    page load and would just look like a new participant."""
+    pid = data.get("participantId")
+    pid_source = data.get("participantIdSource", "random")
+    if not pid or pid_source != "prolific":
+        return
+    ts = bias_util.get_current_time()
+    if pid in CLIENTS:
+        CLIENTS[pid].setdefault("refresh_events", []).append(ts)
+    print(f"[on_participant_refreshed] Participant ID: {pid} refreshed at {ts}")
+    firebase_logger.save_refresh_event(pid, ts)
+
+
 @SIO.on('on_selected_subjects')
 async def on_selected_subjects(sid, data):
     pid = data.get("participantId")
