@@ -17,3 +17,21 @@ export const ATTR_LABELS: Record<string, string> = {
 export function cleanAttr(attr: string): string {
   return ATTR_LABELS[attr] ?? attr.replace(/_/g, ' ');
 }
+
+// Some categorical attributes have a natural non-alphabetical order (e.g.
+// difficulty levels) -- plain alphabetical sort misorders them ("A little" /
+// "A lot" / "No" reads as Little, Lot, No). List the intended order here;
+// anything not listed falls back to alphabetical in compareCategoryValues.
+export const ORDINAL_CATEGORY_ORDER: Record<string, string[]> = {
+  difficulty_making_friends: ['No difficulty', 'A little difficulty', 'A lot of difficulty'],
+};
+
+export function compareCategoryValues(attr: string, a: string, b: string): number {
+  const order = ORDINAL_CATEGORY_ORDER[attr];
+  if (order) {
+    const ai = order.indexOf(a);
+    const bi = order.indexOf(b);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+  }
+  return a < b ? -1 : a > b ? 1 : 0;
+}
