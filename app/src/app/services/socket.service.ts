@@ -105,4 +105,9 @@ export class ChatService {
     if (this.tutorialMode) return;
     this.vizSocket.emit("on_llm_summary_request", payload);
   }
+
+  sendLlmDismissed(payload) {
+    if (this.tutorialMode) return;
+    this.vizSocket.emit("on_llm_dismissed", payload);
+  }
 }

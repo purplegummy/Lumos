@@ -998,8 +998,9 @@
         <as-split-area *ngIf="showLlmPanel" [size]="global.isTutorial ? 40 : 65">
           <app-llm-intervention
             [intervention]="llmIntervention"
+            [showTimer]="!global.isTutorial"
             (explore)="applyThemeFilter($event)"
-            (closed)="llmIntervention = null"
+            (closed)="dismissLlmPanel()"
           ></app-llm-intervention>
         </as-split-area>
 

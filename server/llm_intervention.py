@@ -60,6 +60,12 @@ SUPPORTED_VARIABLES = {
 }
 SUMMARY_EVENT = "llm_summary"
 
+FALLBACK_SUMMARY = {
+    "awareness_summary": "You have picked the ten teens for your story.",
+    "transition": "Take one more look at them before you submit.",
+    "recommended_themes": [],
+}
+
 # A belief bin can be narrow enough that one bin plus one diagnosis group leaves
 # almost nothing on screen. Below this, the recommended range widens.
 MIN_RECOMMENDED_TEENS = 5
@@ -205,14 +211,23 @@ def top_variable(dwell_bias_v, axes=None):
 
 
 def over_attended_cells(cells, group, n=3):
-    """The n cells of one group the participant attended MOST beyond its share of
-    the dataset. The mirror of select_candidate_cell over the same grid.
+    """The n cells of one group that contributed MOST to the detected bias, by how
+    far the participant attended them beyond their share of the dataset times how
+    strongly they match the belief. The mirror of select_candidate_cell over the
+    same grid, ranked the same way -- attention alone would put a barely-consistent
+    range the participant happened to linger on above a strongly consistent one.
 
     Restricted to the focus group so the characteristics named cannot describe a
     different group from the one current_focus.diagnosis_status names.
+
+    Belief-CONSISTENT only (vc > 0). Over-attention on its own is not the bias the
+    summary is about: a range the participant lingered on that contradicts their
+    beliefs is the opposite of confirmation, and naming it would have the message
+    accuse them of favouring their expectations while citing evidence against it.
     """
-    over = [c for c in cells if c["underexploration"] < 0 and c["group"] == group]
-    return sorted(over, key=lambda c: c["underexploration"])[:n]
+    over = [c for c in cells
+            if c["underexploration"] < 0 and c["vc"] > 0 and c["group"] == group]
+    return sorted(over, key=lambda c: c["underexploration"] * abs(c["vc"]))[:n]
 
 
 def _bin_teens(cell, n_teens):
@@ -407,7 +422,8 @@ toward one pattern, and has already worked out which variables and which contras
 surfacing -- you are not deciding any of that, only writing the natural-language output.
 
 You will receive a JSON payload with:
-- "current_focus": the diagnosis direction and 1-3 characteristics the participant has been focused on.
+- "current_focus": the diagnosis direction and 0-3 characteristics the participant has been focused on.
+  "main_characteristics" can be empty: then name the diagnosis direction alone and invent no range.
 - "evidence_for_focus": why this was triggered, grounding your summary so it is not invented.
 - "candidate_themes": 1-2 pre-computed contrastive themes, each with a "raw_theme" description, a
   "predicate", and already-resolved "filter_ranges" (numeric range or category list) -- pass these
@@ -415,7 +431,8 @@ You will receive a JSON payload with:
 - "tone_constraints": a list of rules for this specific request. Follow every one of them exactly.
 - "previous_interventions" (optional): earlier summaries/themes already shown this session. Vary your
   wording and theme framing from these; do not repeat the same phrasing.
-- "phase": "realtime" (a live nudge) or "final_check" (a pre-submission reflection).
+- "phase": "realtime" (a live nudge), "final_check" (a pre-submission reflection), or
+  "balanced_check" (a pre-submission reflection with nothing to correct).
 
 Produce exactly this JSON shape:
 {
@@ -429,6 +446,12 @@ Produce exactly this JSON shape:
 If phase is "final_check", let the transition frame this as worth a quick look before submitting rather \
 than a live nudge (e.g. "Before you submit, ..."). Produce one recommended_theme per candidate_theme \
 given, in the same order, each one's filter_ranges copied through exactly as given.
+
+If phase is "balanced_check", the participant's final selection is NOT skewed, so there is nothing to \
+correct and the candidate_themes are context only -- do not recommend them. Use awareness_summary to \
+recap what they explored, grounded the same way, and say their selection looks relatively balanced for \
+building a story. Let the transition offer a last look as optional rather than as a fix (e.g. "You can \
+take another look, or submit as they are."). Return "recommended_themes": [].
 """
 
 
@@ -592,6 +615,29 @@ def live_room(sio, sid_by_pid, pid):
     return sid
 
 
+async def emit_fallback_summary(sio, room, pid=None):
+    """Stand in for a summary that could not be generated.
+
+    Everyone in the summary conditions gets a modal now, so the failure paths --
+    no positively-biased variable to talk about, a dead API key, a timeout --
+    need something to render rather than dropping the participant into the plain
+    confirm dialog. Says nothing about which way their selection leans, because
+    the same text covers the biased and balanced cases.
+    """
+    if room is not None:
+        await sio.emit(SUMMARY_EVENT, dict(FALLBACK_SUMMARY), room=room)
+    print(f"[LLM] {pid}: fallback summary "
+          f"{'sent' if room is not None else 'NOT delivered (no live socket)'}",
+          flush=True)
+    if pid:
+        firebase_logger.save_logs(pid, [{
+            "kind": "llm_summary_fallback",
+            "participant_id": pid,
+            "created_at": _now(),
+            "delivered": room is not None,
+        }])
+
+
 async def emit_summary_skip(sio, room, reason, pid=None):
     """Tell the frontend no summary is coming, so it can proceed to submit.
 
@@ -644,14 +690,19 @@ async def generate_and_emit(sio, sid_by_pid, pid, client_record, dwell_metrics, 
 
 
 async def generate_summary_and_emit(sio, sid_by_pid, pid, client_record,
-                                    selection, teens, selected_ids):
+                                    selection, teens, selected_ids, biased=True):
     """Background task: the same pipeline, run on the FINAL SELECTION at submit.
 
     Differs from generate_and_emit only in the arguments below: the teens are
     weighted equally by having been selected rather than by dwell time, the
-    per-variable scores come from the selection, the phase is "final_check"
-    (which the prompt already frames as "before you submit"), the trigger signal
-    names the selection, and the event is SUMMARY_EVENT.
+    per-variable scores come from the selection, the trigger signal names the
+    selection, and the event is SUMMARY_EVENT.
+
+    `biased` is the trigger outcome, and only picks which of the two phases the
+    prompt writes: "final_check" carries a recommendation, "balanced_check" is a
+    recap with nothing to correct. Everything upstream of the prompt is identical
+    -- the same variable, the same cells -- because what the participant attended
+    to is worth reflecting back either way.
 
     Emits exactly one SUMMARY_EVENT either way -- a generation that failed, timed
     out, or could not be delivered still has to release the submit button.
@@ -661,16 +712,17 @@ async def generate_summary_and_emit(sio, sid_by_pid, pid, client_record,
         weights={teen_id: 1.0 for teen_id in selected_ids},
         attention={"selected_ids": selected_ids},
         bias_v=selection.get("selection_bias_v", {}),
-        phase="final_check",
-        trigger_signal="selection-level bias over the participant's final selection "
-                       "exceeded participant-specific threshold",
+        phase="final_check" if biased else "balanced_check",
+        trigger_signal=("selection-level bias over the participant's final selection "
+                        "exceeded participant-specific threshold") if biased else
+                       ("the participant's final selection is NOT unusually biased -- "
+                        "it sits within the normal range for their beliefs"),
         event=SUMMARY_EVENT,
         # TODO: confirm with Shiyao whether the summary path should also get axis
         # preference. For now axes=None keeps it pure argmax on selection_bias_v.
         axes=None)
     if not generated:
-        await emit_summary_skip(sio, live_room(sio, sid_by_pid, pid),
-                                "generation_failed", pid)
+        await emit_fallback_summary(sio, live_room(sio, sid_by_pid, pid), pid)
 
 
 async def _generate_and_emit(sio, sid_by_pid, pid, client_record, teens,
@@ -763,6 +815,11 @@ async def _generate_and_emit(sio, sid_by_pid, pid, client_record, teens,
             # line of their own. Say so here so the trigger has a visible end.
             print(f"[LLM] {pid}: no output ({elapsed:.1f}s)", flush=True)
             return False
+
+        if phase == "balanced_check":
+            # The prompt asks for none, but a model that recommends anyway would
+            # be handing a correction to someone just told they are balanced.
+            result["recommended_themes"] = []
 
         # Attach both halves of each recommended theme's filter: the variable its
         # range applies to, and the diagnosis status it contrasts against. The

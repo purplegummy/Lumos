@@ -297,6 +297,19 @@ async def on_task_submitted(sid, data):
                 print(f"[SEL%] compute failed: {e}", flush=True)
 
 
+@SIO.on('on_llm_dismissed')
+async def on_llm_dismissed(sid, data=None):
+    """The realtime panel closed, by timeout or by hand.
+
+    Only the client knows when that happened, so the recheck window can only be
+    restarted from here.
+    """
+    pid = (data or {}).get("participantId")
+    client_record = CLIENTS.get(pid)
+    if client_record:
+        llm_trigger.reset_dwell_watermark(client_record)
+
+
 @SIO.on('on_llm_summary_request')
 async def on_llm_summary_request(sid, data=None):
     """Generate the pre-submission summary for the participant's final selection.
@@ -344,11 +357,11 @@ async def on_llm_summary_request(sid, data=None):
             return
 
         fired, reason = llm_trigger.evaluate_summary_trigger(client_record, selection, selected)
-        # Reply BEFORE logging: a formatting error in the log line must not be
-        # what stops the participant from ever hearing back.
-        if not fired:
-            await llm_intervention.emit_summary_skip(
-                SIO, sid, reason.split(" ")[0], pid)
+        # Both outcomes are shown: `fired` now decides whether a recommendation is
+        # attached, not whether the participant hears anything. Leaving the
+        # unbiased ones with nothing made the condition inconsistent, and inverted
+        # it -- realtime nudges make a participant less biased, which under the old
+        # gate cost them their summary.
         print(f"[LLM] {pid}: summary {'triggered' if fired else 'not triggered'} "
               f"({reason}, selection_bias={selection['selection_bias']:+.4f}, "
               f"n_selected={selection['n_selected']})", flush=True)
@@ -365,14 +378,11 @@ async def on_llm_summary_request(sid, data=None):
             "selection_bias_v": selection["selection_bias_v"],
             "n_selected": selection["n_selected"],
         }])
-        if not fired:
-            return
-
         teens = bias.DATA_MAP.get(data.get("appMode"), {}).get("data", {})
         SIO.start_background_task(
             llm_intervention.generate_summary_and_emit,
             SIO, CLIENT_PARTICIPANT_ID_SOCKET_ID_MAPPING, pid,
-            client_record, selection, teens, selected)
+            client_record, selection, teens, selected, fired)
     except Exception as e:
         print(f"[LLM] {pid}: summary handler failed: {e}", flush=True)
         await llm_intervention.emit_summary_skip(SIO, sid, "handler_error", pid)
