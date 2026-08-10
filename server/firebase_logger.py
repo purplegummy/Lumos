@@ -132,6 +132,18 @@ def save_task_submission(pid: str, verification_code: str, subjects: list):
         print(f"[firebase_logger] save_task_submission error: {e}")
 
 
+def save_refresh_event(pid: str, timestamp):
+    """Append a page-refresh event for the participant."""
+    db = _get_db()
+    if db is None:
+        return
+    try:
+        _participant_ref(db, pid).collection("refresh_events").add({"timestamp": timestamp})
+        print(f"[firebase_logger] Logged refresh event for {pid} at {timestamp}")
+    except Exception as e:
+        print(f"[firebase_logger] save_refresh_event error: {e}")
+
+
 def save_priors(pid: str, priors: dict):
     """Write each prior belief as its own Firestore document."""
     db = _get_db()
