@@ -19,7 +19,7 @@ import { LineChart } from "../visualizations/main/line-chart-component";
 import { AttributeDistributionPlotConfig } from "../visualizations/awareness/component";
 import { PriorBeliefStore } from "../store/prior-belief.store";
 import { isTutorialRequested, startTutorial, exitTutorial, startElicitationIntro } from "./tutorial";
-import { cleanAttr } from "../models/attribute-labels";
+import { cleanAttr, ORDINAL_CATEGORY_ORDER } from "../models/attribute-labels";
 window.addEventListener("beforeunload", function (e) {
   // Cancel the event
   e.preventDefault(); // If you prevent default behavior in Mozilla Firefox prompt will always be shown
@@ -516,13 +516,6 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
       : {};
   }
 
-  // Alphabetical sort misorders ordinal attributes (e.g. "A little difficulty"
-  // / "A lot of difficulty" / "No difficulty" reads as Little, Lot, No). List
-  // the intended order here; anything not listed falls back to alphabetical.
-  private static readonly ORDINAL_CATEGORY_ORDER: Record<string, string[]> = {
-    difficulty_making_friends: ["No difficulty", "A little difficulty", "A lot of difficulty"],
-  };
-
   getCategoricalValues(): Record<string, string[]> {
     const data = this.userConfig["originalDataset"];
     if (!data) return {};
@@ -533,7 +526,11 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     catAttrs.forEach(attr => {
       const seen = new Set<string>();
       data.forEach(row => { if (row[attr] != null) seen.add(String(row[attr])); });
-      const order = MainActivityComponent.ORDINAL_CATEGORY_ORDER[attr];
+      // Alphabetical sort misorders ordinal attributes (e.g. "A little difficulty"
+      // / "A lot of difficulty" / "No difficulty" reads as Little, Lot, No) --
+      // ORDINAL_CATEGORY_ORDER (shared with the scatterplot's axis ordering)
+      // gives the intended order; anything not listed falls back to alphabetical.
+      const order = ORDINAL_CATEGORY_ORDER[attr];
       result[attr] = order
         ? order.filter(v => seen.has(v))
         : Array.from(seen).sort();

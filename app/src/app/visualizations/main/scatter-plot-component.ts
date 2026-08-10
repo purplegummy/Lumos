@@ -7,6 +7,7 @@ import { ScatterPlotConfig } from "src/app/models/viz";
 import { sequentialColorRange, SessionPage } from "src/app/models/config";
 import { UtilsService } from "src/app/services/utils.service";
 import { ChatService } from "src/app/services/socket.service";
+import { cleanAttr, compareCategoryValues } from "src/app/models/attribute-labels";
 
 export class ScatterPlot {
   scatterPlotConfig;
@@ -186,8 +187,8 @@ export class ScatterPlot {
     } else {
       // both x and y are defined => set axis titles and display legend
       context.scatterPlotConfig.legendGroup.style("display", "block");
-      xAxisTitle = dataset["xVar"];
-      yAxisTitle = dataset["yVar"];
+      xAxisTitle = cleanAttr(dataset["xVar"]);
+      yAxisTitle = cleanAttr(dataset["yVar"]);
       if (xIsQ) {
         // x is Q => scale linear
         context.scatterPlotConfig.xScale = d3
@@ -208,7 +209,7 @@ export class ScatterPlot {
                 return d["xVar"];
               })
               .sort(function (x, y) {
-                return d3.ascending(x, y); // sort domain
+                return compareCategoryValues(dataset["xVar"], x, y); // sort domain
               })
           )
           .rangeRound([0, context.plotWidth])
@@ -234,7 +235,7 @@ export class ScatterPlot {
                 return d["yVar"];
               })
               .sort(function (x, y) {
-                return d3.ascending(x, y); // sort domain
+                return compareCategoryValues(dataset["yVar"], x, y); // sort domain
               })
           )
           .rangeRound([context.plotHeight, 0])
