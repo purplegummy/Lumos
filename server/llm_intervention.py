@@ -61,8 +61,9 @@ SUPPORTED_VARIABLES = {
 SUMMARY_EVENT = "llm_summary"
 
 FALLBACK_SUMMARY = {
-    "awareness_summary": "You have picked the ten teens for your story.",
-    "transition": "Take one more look at them before you submit.",
+    "awareness_summary": "Thank you for completing the selections.",
+    "transition": "Do you want to review your selection and make potential changes "
+                  "before completing the task?",
     "recommended_themes": [],
 }
 
