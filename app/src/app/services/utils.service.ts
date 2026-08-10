@@ -340,7 +340,7 @@ export class UtilsService {
       let this_ = this;
       let dataset = context.appConfig[context.global.appMode];
       dataset["hoveredObject"] = d; // add data to details table
-      const delay = 350; // 350 ms delay before hover counts as an interaction
+      const delay = 100; // 100 ms delay before hover counts as an interaction
       context.userConfig["hoverTimer"] = setTimeout(function () {
         context.userConfig["hoverTimer"] = null;
         if (element && styleAttr) d3.select(element).style(styleAttr, "cyan");
@@ -465,7 +465,7 @@ export class UtilsService {
     if (!context.userConfig["hoverTimer"]) {
       // no hover timer function yet => set one to act after delay
       let this_ = this;
-      const delay = 350; // 350 ms delay before hover counts as an interaction
+      const delay = 100; // 100 ms delay before hover counts as an interaction
       context.userConfig["hoverTimer"] = setTimeout(function () {
         // reset timer function and set hovered object properties for point
         context.userConfig["hoverTimer"] = null;
