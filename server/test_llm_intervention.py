@@ -13,6 +13,7 @@ from llm_intervention import (
     _variable_for_filter_ranges,
     _majority_diagnosis,
     top_variable,
+    get_current_axes,
     widened_span,
     assemble_llm_input,
 )
@@ -162,18 +163,107 @@ def test_majority_unlabeled_dwell_returns_no():
 
 # --- top_variable: one variable drives everything ---------------------------
 def test_top_variable_is_the_largest_positive():
-    """Raw descending: -0.9 no longer outranks +0.2, and 0.0 is excluded too."""
+    """Raw descending: -0.9 no longer outranks +0.2, and 0.0 is excluded too.
+
+    axes=None -> the default (pure-argmax) behavior is unchanged by the new param.
+    """
     assert top_variable({
         "screen_time_weekday": -0.9,
         "hours_sleep_weeknight": 0.2,
         "days_physical_activity_week": 0.0,
         "difficulty_making_friends": 0.5,
-    }) == "difficulty_making_friends"
+    }, axes=None) == "difficulty_making_friends"
 
 
 def test_top_variable_ignores_unsupported_variables():
     """child_age_years has no filter row, so a positive score there is not a subject."""
-    assert top_variable({"child_age_years": 9.0, "screen_time_weekday": -0.1}) is None
+    assert top_variable(
+        {"child_age_years": 9.0, "screen_time_weekday": -0.1}, axes=None) is None
+
+
+# --- axis preference: prefer a top-3 axis attribute over the raw argmax ------
+# Ranking used below (all supported): screen_time_weekday > hours_sleep_weeknight
+# > days_physical_activity_week > difficulty_making_friends. Only 4 supported vars
+# exist, so "top 3" is the first three of that order.
+_AXIS_BIAS_V = {
+    "screen_time_weekday": 0.9,          # overall argmax, NOT on an axis
+    "hours_sleep_weeknight": 0.6,        # top-3
+    "days_physical_activity_week": 0.4,  # top-3
+    "difficulty_making_friends": 0.1,    # 4th -> outside top-3
+}
+
+
+def test_axis_attribute_in_top3_beats_higher_scored_nonaxis():
+    """A positively-biased axis attribute in the top-3 wins over the raw argmax."""
+    assert top_variable(_AXIS_BIAS_V, axes={"x": "hours_sleep_weeknight", "y": None}) \
+        == "hours_sleep_weeknight"
+    # sanity: the same scores with no axes still resolve to the raw argmax
+    assert top_variable(_AXIS_BIAS_V, axes=None) == "screen_time_weekday"
+
+
+def test_both_axes_qualify_higher_weighted_score_wins():
+    """When both axis attributes are eligible, the higher weighted score is picked."""
+    assert top_variable(
+        _AXIS_BIAS_V,
+        axes={"x": "days_physical_activity_week", "y": "hours_sleep_weeknight"}) \
+        == "hours_sleep_weeknight"
+
+
+def test_axis_outside_top3_falls_back_to_argmax():
+    """An axis attribute ranked 4th (not top-3) does not qualify -> argmax stands."""
+    assert top_variable(
+        _AXIS_BIAS_V, axes={"x": "difficulty_making_friends", "y": None}) \
+        == "screen_time_weekday"
+
+
+def test_axis_with_nonpositive_score_does_not_qualify():
+    """A supported axis attribute with a <=0 score is not eligible -> argmax stands."""
+    bias_v = {"screen_time_weekday": 0.9, "hours_sleep_weeknight": -0.2}
+    assert top_variable(bias_v, axes={"x": "hours_sleep_weeknight", "y": None}) \
+        == "screen_time_weekday"
+
+
+def test_axis_outside_supported_does_not_qualify():
+    """An axis showing a non-belief column can never be a subject -> argmax stands."""
+    bias_v = {"screen_time_weekday": 0.9, "hours_sleep_weeknight": 0.5}
+    assert top_variable(bias_v, axes={"x": "child_age_years", "y": None}) \
+        == "screen_time_weekday"
+
+
+def test_null_axes_handled_without_error():
+    """Both axes None (no hover yet / unassigned) -> plain argmax, no crash."""
+    bias_v = {"screen_time_weekday": 0.9, "hours_sleep_weeknight": 0.5}
+    assert top_variable(bias_v, axes={"x": None, "y": None}) == "screen_time_weekday"
+    # one real, one None: the real axis attribute is still considered
+    assert top_variable(bias_v, axes={"x": None, "y": "hours_sleep_weeknight"}) \
+        == "hours_sleep_weeknight"
+
+
+# --- get_current_axes: read the live axes off the latest hover log -----------
+def test_get_current_axes_reads_latest_hover():
+    """Scans in reverse; the most recent mouseout_item/group wins, others ignored."""
+    record = {"bias_logs": [
+        {"interactionType": "mouseout_item",
+         "data": {"x": {"name": "old_x"}, "y": {"name": "old_y"}}},
+        {"interactionType": "click_add_item", "data": {"id": "t1"}},  # not a hover
+        {"interactionType": "mouseout_group",
+         "data": {"x": {"name": "cur_x"}, "y": {"name": "cur_y"}}},
+    ]}
+    assert get_current_axes(record) == {"x": "cur_x", "y": "cur_y"}
+
+
+def test_get_current_axes_none_when_no_hover():
+    """No hover logged yet (or no bias_logs key) -> both axes None, no crash."""
+    assert get_current_axes({"bias_logs": []}) == {"x": None, "y": None}
+    assert get_current_axes({}) == {"x": None, "y": None}
+
+
+def test_get_current_axes_tolerates_missing_axis_field():
+    """A hover missing an axis (e.g. y unassigned) yields None for that axis."""
+    record = {"bias_logs": [
+        {"interactionType": "mouseout_item", "data": {"x": {"name": "only_x"}}},
+    ]}
+    assert get_current_axes(record) == {"x": "only_x", "y": None}
 
 
 def _session(bias_v, cells, values=()):

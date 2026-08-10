@@ -734,6 +734,33 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
 
       context.chatService.getConnectEventResponse().subscribe(() => {
         console.log("connected to socket");
+        // Only Prolific participants keep a stable participantId across a
+        // refresh (it's derived from the PROLIFIC_PID URL param) -- random
+        // IDs are regenerated on every load, so a refresh there is
+        // indistinguishable from a brand-new participant and not worth
+        // reporting. Navigation Timing tells us the *current* load was a
+        // reload, not whether one will happen later, so this only needs to
+        // run once per page load. Tutorial refreshes don't count -- the
+        // dummy walkthrough restarting isn't the real task ending.
+        if (context.global.participantIdSource === "prolific" && !context.global.isTutorial) {
+          const navEntries = performance.getEntriesByType("navigation") as PerformanceNavigationTiming[];
+          const isReload = navEntries[0]?.type === "reload";
+          if (isReload) {
+            context.chatService.sendParticipantRefreshed({
+              participantId: context.global.participantId,
+              participantIdSource: context.global.participantIdSource,
+              appMode: context.global.appMode,
+              appType: context.global.appType,
+              appLevel: context.global.appLevel,
+            });
+            // Kick refreshed participants straight to the verification page --
+            // they get the shared REFRESHED_VERIFICATION_CODE there (see
+            // UtilsService) instead of continuing the task.
+            localStorage.setItem(context.utilsService.getRefreshedStorageKey(context.global.participantId), 'true');
+            localStorage.setItem(context.getSubmissionStorageKey(), 'true');
+            context.router.navigate(['/submitted'], { queryParamsHandling: 'preserve' });
+          }
+        }
       });
 
       context.chatService.getDisconnectEventResponse().subscribe(() => {

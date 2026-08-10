@@ -23,6 +23,7 @@ export class SubmissionCompleteComponent implements OnInit {
       this.router.navigate(["/"], { queryParamsHandling: "preserve" });
       return;
     }
-    this.verificationCode = this.utilsService.generateVerificationCode(this.global.participantId);
+    const refreshed = !!localStorage.getItem(this.utilsService.getRefreshedStorageKey(this.global.participantId));
+    this.verificationCode = this.utilsService.generateVerificationCode(this.global.participantId, refreshed);
   }
 }

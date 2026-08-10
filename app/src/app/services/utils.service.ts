@@ -20,18 +20,35 @@ export class UtilsService {
     return result;
   }
 
+  // Fixed code shown to every participant who refreshed mid-session, instead of
+  // the normal per-participant derived code -- same code for all of them (one
+  // character longer than a normal "LX-XXXXXX" code) so a researcher scanning
+  // submitted codes can immediately spot and exclude refreshed sessions.
+  readonly REFRESHED_VERIFICATION_CODE = "LX-RRRRRRR";
+
   /**
    * Deterministic verification code derived from the participant ID, so the same
    * participant always gets the same code and a researcher can recompute it from
-   * the logged participantId to confirm it wasn't fabricated.
+   * the logged participantId to confirm it wasn't fabricated. Pass `refreshed`
+   * to get the shared flagged code instead (see REFRESHED_VERIFICATION_CODE).
    */
-  generateVerificationCode(participantId: string): string {
+  generateVerificationCode(participantId: string, refreshed: boolean = false): string {
+    if (refreshed) return this.REFRESHED_VERIFICATION_CODE;
     let hash = 5381;
     for (let i = 0; i < participantId.length; i++) {
       hash = ((hash * 33) ^ participantId.charCodeAt(i)) >>> 0;
     }
     const code = hash.toString(36).toUpperCase().padStart(6, "0");
     return `LX-${code}`;
+  }
+
+  /**
+   * localStorage key marking that this participant refreshed mid-session --
+   * shared between the main task (which sets it) and the submission-complete
+   * page (which reads it to decide which verification code to show).
+   */
+  getRefreshedStorageKey(participantId: string): string {
+    return `lumos_refreshed_${participantId}`;
   }
 
   /**
@@ -340,7 +357,7 @@ export class UtilsService {
       let this_ = this;
       let dataset = context.appConfig[context.global.appMode];
       dataset["hoveredObject"] = d; // add data to details table
-      const delay = 350; // 350 ms delay before hover counts as an interaction
+      const delay = 100; // 100 ms delay before hover counts as an interaction
       context.userConfig["hoverTimer"] = setTimeout(function () {
         context.userConfig["hoverTimer"] = null;
         if (element && styleAttr) d3.select(element).style(styleAttr, "cyan");
@@ -465,7 +482,7 @@ export class UtilsService {
     if (!context.userConfig["hoverTimer"]) {
       // no hover timer function yet => set one to act after delay
       let this_ = this;
-      const delay = 350; // 350 ms delay before hover counts as an interaction
+      const delay = 100; // 100 ms delay before hover counts as an interaction
       context.userConfig["hoverTimer"] = setTimeout(function () {
         // reset timer function and set hovered object properties for point
         context.userConfig["hoverTimer"] = null;

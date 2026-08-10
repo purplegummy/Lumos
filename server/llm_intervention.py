@@ -155,17 +155,59 @@ def _diagnosis_filter_for_filter_ranges(candidates, filter_ranges):
     return None
 
 
-def top_variable(dwell_bias_v):
-    """The single most positively-biased supported variable, or None.
+def get_current_axes(client_record):
+    """The attributes currently on the x/y axes -> {"x": name|None, "y": name|None}.
 
-    Positive only: a negative score is attention to belief-INCONSISTENT teens, the
-    opposite of the bias we flag. Both halves of the intervention are about this one
-    variable -- the summary names the range they over-attended, the recommendation
-    the range they skipped -- so the two can never disagree about the subject.
+    Scans bias_logs in reverse for the most recent point/group hover, whose message
+    embeds the live axis attribute names as data.x.name / data.y.name (the same
+    fields bias.py reads). Dedicated CHANGE_AXIS_ATTRIBUTE events are NOT stored in
+    bias_logs, so the last hover is the reliable source; on the realtime path a
+    dwell trigger always implies recent hovers, so this stays current. Returns
+    {"x": None, "y": None} when no qualifying hover has been logged yet.
+    """
+    for entry in reversed(client_record.get("bias_logs", [])):
+        if entry.get("interactionType") in ("mouseout_item", "mouseout_group"):
+            data = entry.get("data", {})
+            x = data.get("x") if isinstance(data.get("x"), dict) else {}
+            y = data.get("y") if isinstance(data.get("y"), dict) else {}
+            return {"x": x.get("name"), "y": y.get("name")}
+    return {"x": None, "y": None}
+
+
+def top_variable(dwell_bias_v, axes=None):
+    """The single variable that drives the intervention, or None.
+
+    Default (axes is None, or neither axis qualifies): the most positively-biased
+    supported variable. Positive only -- a negative score is attention to belief-
+    INCONSISTENT teens, the opposite of the bias we flag. Both halves of the
+    intervention are about this one variable -- the summary names the range they
+    over-attended, the recommendation the range they skipped -- so the two can never
+    disagree about the subject.
+
+    Axis preference (axes = {"x": name|None, "y": name|None}, realtime path only):
+    if an attribute the participant currently has on an axis is among the top 3 of
+    the ranking AND still positively biased, prefer it over the overall argmax, so
+    the intervention targets what they are actively looking at. Ties between two
+    qualifying axis attributes go to the higher weighted score.
     """
     supported = [kv for kv in dwell_bias_v.items()
                  if kv[0] in SUPPORTED_VARIABLES and kv[1] > 0]
-    return max(supported, key=lambda kv: kv[1])[0] if supported else None
+    if not supported:
+        return None
+    ranked = sorted(supported, key=lambda kv: kv[1], reverse=True)
+
+    if axes:
+        top3 = [name for name, _ in ranked[:3]]
+        score_of = dict(ranked)
+        # deduped, None-tolerant list of the attributes currently on the axes
+        axis_vars = list(dict.fromkeys(
+            a for a in (axes.get("x"), axes.get("y")) if a is not None))
+        # top-3 membership already implies supported and positively biased
+        eligible = [(a, score_of[a]) for a in axis_vars if a in top3]
+        if eligible:
+            return max(eligible, key=lambda av: av[1])[0]
+
+    return ranked[0][0]
 
 
 def over_attended_cells(cells, group, n=3):
@@ -315,7 +357,7 @@ def build_candidate_themes(session, variable):
 def assemble_llm_input(session):
     """The LLM input, or None when there is nothing to recommend: no
     positively-biased variable to name, or no candidate cell to point them at."""
-    variable = top_variable(session["dwell_bias_v"])
+    variable = top_variable(session["dwell_bias_v"], session.get("axes"))
     if variable is None:
         return None
     candidate_themes = build_candidate_themes(session, variable)
@@ -643,7 +685,8 @@ async def generate_and_emit(sio, sid_by_pid, pid, client_record, dwell_metrics, 
         bias_v=dwell_metrics.get("dwell_bias_v", {}),
         phase="realtime",
         trigger_signal="point-level dwell bias exceeded participant-specific threshold",
-        event="llm_intervention")
+        event="llm_intervention",
+        axes=get_current_axes(client_record))
 
 
 async def generate_summary_and_emit(sio, sid_by_pid, pid, client_record,
@@ -674,13 +717,17 @@ async def generate_summary_and_emit(sio, sid_by_pid, pid, client_record,
                         "exceeded participant-specific threshold") if biased else
                        ("the participant's final selection is NOT unusually biased -- "
                         "it sits within the normal range for their beliefs"),
-        event=SUMMARY_EVENT)
+        event=SUMMARY_EVENT,
+        # TODO: confirm with Shiyao whether the summary path should also get axis
+        # preference. For now axes=None keeps it pure argmax on selection_bias_v.
+        axes=None)
     if not generated:
         await emit_fallback_summary(sio, live_room(sio, sid_by_pid, pid), pid)
 
 
 async def _generate_and_emit(sio, sid_by_pid, pid, client_record, teens,
-                             weights, attention, bias_v, phase, trigger_signal, event):
+                             weights, attention, bias_v, phase, trigger_signal, event,
+                             axes=None):
     """Shared assemble -> generate -> emit -> persist core. Returns whether it DELIVERED.
 
     False covers "generation failed", "timed out", and "generated but the
@@ -707,7 +754,7 @@ async def _generate_and_emit(sio, sid_by_pid, pid, client_record, teens,
 
         # One variable drives the whole intervention, so it is resolved once here
         # and its cell grid is what assembly reads.
-        variable = top_variable(bias_v)
+        variable = top_variable(bias_v, axes)
         bin_cells, bin_values = [], []
         if variable is not None:
             bin_cells = dc_metric.bin_group_candidates(
@@ -721,6 +768,10 @@ async def _generate_and_emit(sio, sid_by_pid, pid, client_record, teens,
             # Carries selection-weighted scores on the final_check path. The key
             # keeps its dwell name so the llm_samples fixtures stay valid.
             "dwell_bias_v": bias_v,
+            # Axis attributes for top_variable's realtime axis-preference (None on
+            # the summary path). Threaded through so assemble_llm_input's own
+            # top_variable call resolves the SAME variable as the cell grid above.
+            "axes": axes,
             "bin_cells": bin_cells,
             "bin_values": bin_values,
             "n_teens": len(teens),

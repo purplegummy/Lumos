@@ -24,9 +24,9 @@ import dc_metric
 # distribution (dc_metric.dwell_bias_percentile), not a raw threshold.
 # --------------------------------------------------------------------------- #
 MIN_UNIQUE_HOVERS = 5              # distinct teens the participant lingered on
-MIN_TOTAL_DWELL_SECONDS = 60.0     # total hover time before we score at all
+MIN_TOTAL_DWELL_SECONDS = 30.0     # total hover time before we score at all
 DWELL_PERCENTILE_THRESHOLD = 0.95  # fire when DwellBias is at/above this percentile
-DWELL_RECHECK_SECONDS = 30.0       # min extra dwell time between two percentile checks
+DWELL_RECHECK_SECONDS = 20.0       # min extra dwell time between two percentile checks
 
 # --------------------------------------------------------------------------- #
 # Summary gate -- the pre-submission reflection, scored on the participant's
