@@ -169,8 +169,11 @@ def top_variable(dwell_bias_v):
 
 
 def over_attended_cells(cells, group, n=3):
-    """The n cells of one group the participant attended MOST beyond its share of
-    the dataset. The mirror of select_candidate_cell over the same grid.
+    """The n cells of one group that contributed MOST to the detected bias, by how
+    far the participant attended them beyond their share of the dataset times how
+    strongly they match the belief. The mirror of select_candidate_cell over the
+    same grid, ranked the same way -- attention alone would put a barely-consistent
+    range the participant happened to linger on above a strongly consistent one.
 
     Restricted to the focus group so the characteristics named cannot describe a
     different group from the one current_focus.diagnosis_status names.
@@ -182,7 +185,7 @@ def over_attended_cells(cells, group, n=3):
     """
     over = [c for c in cells
             if c["underexploration"] < 0 and c["vc"] > 0 and c["group"] == group]
-    return sorted(over, key=lambda c: c["underexploration"])[:n]
+    return sorted(over, key=lambda c: c["underexploration"] * abs(c["vc"]))[:n]
 
 
 def _bin_teens(cell, n_teens):
