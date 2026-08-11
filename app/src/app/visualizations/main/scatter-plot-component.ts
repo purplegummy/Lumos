@@ -457,23 +457,38 @@ function translatePoints(d, context, xIsQ, yIsQ) {
     }
 
     // Jitter X (same seeding pattern as before: one draw for sign, one for magnitude).
+    // Keep the rng() sign draw even for a Q axis so the seeded stream stays aligned for
+    // every other point/axis in this render (nothing unrelated shifts), then override it.
+    // For a Q x-axis force "+": the point only ever lands at/right-of its true value and
+    // can never display left of itself into the lower bin. (x-scale increases left->right,
+    // so "+pixels" == higher value == away from the lower neighbor.)
     var sign = rng() > 0.5 ? "-" : "+";
+    if (xIsQ) sign = "+";
     var jitter = rng() * xBound;
     d["jitter_x"] = xBase + (sign == "-" ? -jitter : jitter);
-    // Jitter Y
+    // Jitter Y. The y-scale range is [plotHeight, 0] (INVERTED: higher value == smaller
+    // pixel), so "away from the lower bin" is "-pixels", not "+". Force "-" for a Q y-axis
+    // so the point only ever lands at/above its true value, never below into the lower bin.
     var sign = rng() > 0.5 ? "-" : "+";
+    if (yIsQ) sign = "-";
     var jitter = rng() * yBound;
     d["jitter_y"] = yBase + (sign == "-" ? -jitter : jitter);
 
-    // Keep points in the plot area by REFLECTING overflow back inward (mirror)
-    // rather than re-randomizing, preserving an even spread at the extremes.
+    // Keep points in the plot area. For N/O axes, REFLECT overflow back inward (mirror)
+    // as before. For Q axes (now one-directional) a point can only overflow the edge it
+    // was pushed TOWARD -- the max-value edge -- so CLAMP there instead of mirroring, which
+    // would send it back across the bin boundary and reintroduce the crossing we just fixed.
+    //   x (increasing): toward-max overflow is jitter_x > plotWidth -> pin plotWidth
+    //   y (inverted):   toward-max overflow is jitter_y < 0         -> pin 0
+    // The opposite branch never fires for a Q axis (positive-only can't overshoot the min
+    // edge), so its mirror is left untouched and only ever applies to N/O.
     if (d["jitter_x"] < 0) {
       d["jitter_x"] = -d["jitter_x"];
     } else if (d["jitter_x"] > context.plotWidth) {
-      d["jitter_x"] = 2 * context.plotWidth - d["jitter_x"];
+      d["jitter_x"] = xIsQ ? context.plotWidth : 2 * context.plotWidth - d["jitter_x"];
     }
     if (d["jitter_y"] < 0) {
-      d["jitter_y"] = -d["jitter_y"];
+      d["jitter_y"] = yIsQ ? 0 : -d["jitter_y"];
     } else if (d["jitter_y"] > context.plotHeight) {
       d["jitter_y"] = 2 * context.plotHeight - d["jitter_y"];
     }
