@@ -322,8 +322,10 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   confirmSubmit() {
     // The summary replaces the confirm dialog the first time only. Re-showing it
     // after a revision would let the participant loop between reflecting and
-    // revising with no way to finish.
-    if (this.llmSummaryEnabled && !this.llmSummaryRequested) {
+    // revising with no way to finish. Skipped in the tutorial: the dummy dataset
+    // has nothing worth summarizing, and submitting there just hands off to the
+    // real task, so the summary step doesn't belong in the walkthrough.
+    if (this.llmSummaryEnabled && !this.llmSummaryRequested && !this.global.isTutorial) {
       this.requestLlmSummary();
       return;
     }
