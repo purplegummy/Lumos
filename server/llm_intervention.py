@@ -47,16 +47,21 @@ READABLE_NAMES = {
     "hours_sleep_weeknight": "sleep hours",
     "days_physical_activity_week": "physical activity",
     "difficulty_making_friends": "in-person social time",
+    "child_age_years": "age",
+    "child_sex": "gender",
 }
-# The study elicits SIX belief variables (dc_adapter.EXPECTED_VARIABLE_COUNT), so
-# dwell_bias_v carries all six -- including child_age_years and child_sex, which
-# have no filter row in the interface. Ranking must ignore them: an intervention is
-# only ever about a variable we can hand the participant a real filter for.
+# All SIX elicited belief variables (dc_adapter.EXPECTED_VARIABLE_COUNT). Every one
+# of them has a filter row in the interface -- the mental health dataset opens every
+# attribute except the id -- so any of them can carry an intervention. A variable
+# must have a READABLE_NAMES entry to belong here, or the message would name the raw
+# column.
 SUPPORTED_VARIABLES = {
     "screen_time_weekday",
     "hours_sleep_weeknight",
     "days_physical_activity_week",
-    "difficulty_making_friends",           # the one categorical belief variable
+    "difficulty_making_friends",           # categorical
+    "child_age_years",
+    "child_sex",                           # categorical, only two categories
 }
 SUMMARY_EVENT = "llm_summary"
 
