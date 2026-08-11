@@ -7,6 +7,7 @@ import { DotPlotConfig } from "src/app/models/viz";
 import { sequentialColorRange, SessionPage } from "src/app/models/config";
 import { UtilsService } from "src/app/services/utils.service";
 import { ChatService } from "src/app/services/socket.service";
+import { cleanAttr, compareCategoryValues } from "src/app/models/attribute-labels";
 
 export class DotPlot {
   dotPlotConfig;
@@ -194,7 +195,7 @@ export class DotPlot {
               return d["xVar"];
             })
             .sort(function (x, y) {
-              return d3.ascending(x, y); // sort domain
+              return compareCategoryValues(dataset["xVar"], x, y); // sort domain
             })
         );
         context.dotPlotConfig.xAxis = d3.axisBottom(context.dotPlotConfig.xScale);
@@ -209,7 +210,7 @@ export class DotPlot {
           .attr("text-anchor", "middle")
           .attr("fill", "currentColor")
           .attr("dy", "3.71em")
-          .text(dataset["xVar"]);
+          .text(cleanAttr(dataset["xVar"]));
       } else {
         // x is NA => remove x axis (if present)
         context.dotPlotConfig.xAxisGroup.selectAll("*").remove();
@@ -222,7 +223,7 @@ export class DotPlot {
               return d["yVar"];
             })
             .sort(function (x, y) {
-              return d3.ascending(x, y); // sort domain
+              return compareCategoryValues(dataset["yVar"], x, y); // sort domain
             })
         );
         context.dotPlotConfig.yAxis = d3.axisLeft(context.dotPlotConfig.yScale);
@@ -235,7 +236,7 @@ export class DotPlot {
           .attr("transform", `translate(-30, ${context.plotHeight / 2})`)
           .append("text")
           .attr("fill", "currentColor")
-          .text(dataset["yVar"]);
+          .text(cleanAttr(dataset["yVar"]));
         context.dotPlotConfig.yAxisGroup
           .selectAll("text")
           .style("text-anchor", "middle")
