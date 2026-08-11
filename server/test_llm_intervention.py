@@ -176,15 +176,15 @@ def test_top_variable_is_the_largest_positive():
 
 
 def test_top_variable_ignores_unsupported_variables():
-    """child_age_years has no filter row, so a positive score there is not a subject."""
+    """A column outside the six elicited beliefs is not a subject, however biased."""
     assert top_variable(
-        {"child_age_years": 9.0, "screen_time_weekday": -0.1}, axes=None) is None
+        {"ever_diagnosed_dep_or_anx": 9.0, "screen_time_weekday": -0.1}, axes=None) is None
 
 
 # --- axis preference: prefer a top-3 axis attribute over the raw argmax ------
 # Ranking used below (all supported): screen_time_weekday > hours_sleep_weeknight
-# > days_physical_activity_week > difficulty_making_friends. Only 4 supported vars
-# exist, so "top 3" is the first three of that order.
+# > days_physical_activity_week > difficulty_making_friends, so "top 3" is the
+# first three of that order.
 _AXIS_BIAS_V = {
     "screen_time_weekday": 0.9,          # overall argmax, NOT on an axis
     "hours_sleep_weeknight": 0.6,        # top-3
@@ -226,7 +226,7 @@ def test_axis_with_nonpositive_score_does_not_qualify():
 def test_axis_outside_supported_does_not_qualify():
     """An axis showing a non-belief column can never be a subject -> argmax stands."""
     bias_v = {"screen_time_weekday": 0.9, "hours_sleep_weeknight": 0.5}
-    assert top_variable(bias_v, axes={"x": "child_age_years", "y": None}) \
+    assert top_variable(bias_v, axes={"x": "ever_diagnosed_dep_or_anx", "y": None}) \
         == "screen_time_weekday"
 
 
@@ -296,6 +296,19 @@ def test_categorical_bin_is_a_label_list():
                 bin_label="A lot of difficulty")
     theme = _theme({"difficulty_making_friends": 0.4}, [cell], ["A lot of difficulty"] * 5)
     assert theme["filter_ranges"] == ["A lot of difficulty"], theme
+
+
+def test_two_category_grid_still_recommends_one_category():
+    """child_sex has only two categories, so a group's row is two cells wide. The
+    recommendation must still be ONE of them: widening across both would filter
+    nothing, and the theme would point at the whole dataset."""
+    cells = [dict(_cell(0.5, -0.2, "Female", index=0, dataset_share=0.5),
+                  bin_range="Female"),
+             dict(_cell(-0.5, 0.2, "Male", index=1, dataset_share=0.5),
+                  bin_range="Male")]
+    theme = _theme({"child_sex": 0.4}, cells, ["Female"] * 5 + ["Male"] * 5)
+    assert theme["filter_ranges"] == ["Male"], theme
+    assert "gender" in theme["raw_theme"], theme
 
 
 # --- widening to MIN_RECOMMENDED_TEENS --------------------------------------
