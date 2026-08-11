@@ -25,7 +25,7 @@ import dc_metric
 # --------------------------------------------------------------------------- #
 MIN_UNIQUE_HOVERS = 5              # distinct teens the participant lingered on
 MIN_TOTAL_DWELL_SECONDS = 30.0     # total hover time before we score at all
-DWELL_PERCENTILE_THRESHOLD = 0.95  # fire when DwellBias is at/above this percentile
+DWELL_PERCENTILE_THRESHOLD = 0.80  # fire when DwellBias is at/above this percentile
 DWELL_RECHECK_SECONDS = 20.0       # min extra dwell time between two percentile checks
 
 # --------------------------------------------------------------------------- #
@@ -34,7 +34,7 @@ DWELL_RECHECK_SECONDS = 20.0       # min extra dwell time between two percentile
 # (dc_metric.selection_bias_percentile); no cooldown/recheck (asked once at submit).
 # --------------------------------------------------------------------------- #
 MIN_SELECTIONS = 5                     # too few picks makes the mean DC meaningless
-SELECTION_PERCENTILE_THRESHOLD = 0.95  # fire when SelectionBias is at/above this percentile
+SELECTION_PERCENTILE_THRESHOLD = 0.80  # fire when SelectionBias is at/above this percentile
 
 def evaluate_trigger(client_record, dwell_metrics):
     """Decide whether to fire a realtime intervention, AND say why not.
