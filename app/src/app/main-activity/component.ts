@@ -164,9 +164,6 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
       recommended_themes: [],
     };
   }
-  // TEMP DEBUG: latest metrics from output_data, surfaced by the Logs panel.
-  latestMetrics: any = null;
-  showLogsPanel: boolean = false;
   expandedFilters: Set<string> = new Set();
   toggleFilterExpand(attr: string) { this.expandedFilters.has(attr) ? this.expandedFilters.delete(attr) : this.expandedFilters.add(attr); }
   private _lastLoggedChartType: string | null = undefined;
@@ -773,10 +770,6 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
         let dataOut = obj["output_data"];
 
         if (dataOut != null) {
-          // TEMP DEBUG: stash the whole response so the Logs panel can bind to
-          // it. Inside the null guard so a null response never overwrites good
-          // values.
-          context.latestMetrics = dataOut;
           let countObj = dataOut["data_point_distribution"][1]["counts"];
           // retrieve bias values
           dataset["attributeBiasValues"] = dataOut["attribute_distribution"][0];
