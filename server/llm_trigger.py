@@ -24,9 +24,9 @@ import dc_metric
 # distribution (dc_metric.dwell_bias_percentile), not a raw threshold.
 # --------------------------------------------------------------------------- #
 MIN_UNIQUE_HOVERS = 5              # distinct teens the participant lingered on
-MIN_TOTAL_DWELL_SECONDS = 30.0     # total hover time before we score at all
+MIN_TOTAL_DWELL_SECONDS = 20.0     # total hover time before we score at all
 DWELL_PERCENTILE_THRESHOLD = 0.80  # fire when DwellBias is at/above this percentile
-DWELL_RECHECK_SECONDS = 20.0       # min extra dwell time between two percentile checks
+DWELL_RECHECK_SECONDS = 10.0       # min extra dwell time between two percentile checks
 
 # --------------------------------------------------------------------------- #
 # Summary gate -- the pre-submission reflection, scored on the participant's
@@ -53,7 +53,9 @@ def evaluate_trigger(client_record, dwell_metrics):
     >= MIN_UNIQUE_HOVERS distinct teens), rechecked no more than once per
     DWELL_RECHECK_SECONDS of additional dwell, then fire when the observed
     DwellBias sits at or above DWELL_PERCENTILE_THRESHOLD of its null distribution
-    (dc_metric.dwell_bias_percentile) and is positive.
+    (dc_metric.dwell_bias_percentile). The raw score's sign is NOT gated: a high
+    enough percentile fires even when DwellBias is negative (the positive-score
+    requirement was removed in pilot round 2).
 
     Side effect: records dwell_last_checked_seconds on client_record every time a
     percentile check is actually run (not only on fire), so rechecks are spaced by
@@ -94,7 +96,7 @@ def evaluate_trigger(client_record, dwell_metrics):
     # --- C1: DwellBias percentile against its null distribution --------------
     pct = dc_metric.dwell_bias_percentile(client_record["dc_map_detailed"], dwell)
     trace["dwell_bias_percentile"] = pct
-    if pct is None or pct < DWELL_PERCENTILE_THRESHOLD or observed <= 0:
+    if pct is None or pct < DWELL_PERCENTILE_THRESHOLD:
         return False, f"below_percentile (pct={pct}, observed={observed:+.4f})", trace
 
     return True, "ok", trace
@@ -151,7 +153,7 @@ def evaluate_summary_trigger(client_record, selection_metrics, selected_ids):
 
     observed = selection_metrics["selection_bias"]
     pct = dc_metric.selection_bias_percentile(client_record.get("dc_map"), selected_ids)
-    if pct is None or pct < SELECTION_PERCENTILE_THRESHOLD or observed <= 0:
+    if pct is None or pct < SELECTION_PERCENTILE_THRESHOLD:
         return False, f"below_percentile (pct={pct}, observed={observed:+.4f})"
 
     return True, "ok"
