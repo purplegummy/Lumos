@@ -14,15 +14,27 @@ export class BinningService {
     const rawMin = nums.reduce((a, b) => a < b ? a : b);
     const rawMax = nums.reduce((a, b) => a > b ? a : b);
 
-    // One bin per integer value when range is small and all values are integers
+    // One bin per integer value when range is small and all values are integers,
+    // EXCEPT the last two values, which merge into one closed range bin, e.g.
+    // days_physical_activity_week ends in "[6,7]" rather than a lone "7" bin
+    // whose natural half-open edge (8) was never actually observed. Both edges
+    // of that merged bin are real values, so it can safely close on both ends;
+    // every other bin stays the plain half-open "[v, v+1)" it always was.
     const allIntegers = nums.every(v => Number.isInteger(v));
     const range = rawMax - rawMin;
     if (allIntegers && range <= 10) {
       const length = range + 1;
-      return Array.from({ length }, (_, i) => {
+      const singleCount = length >= 2 ? length - 2 : length;
+      const bins: Bin[] = Array.from({ length: singleCount }, (_, i) => {
         const v = rawMin + i;
-        return { lo: v, hi: v + 1, label: this.rangeLabel(v, v + 1, 1, isCurrency, i === length - 1) };
+        return { lo: v, hi: v + 1, label: this.rangeLabel(v, v + 1, 1, isCurrency, false) };
       });
+      if (length >= 2) {
+        const v0 = rawMin + length - 2;
+        const v1 = rawMin + length - 1;
+        bins.push({ lo: v0, hi: v1 + 1, label: `[${this.fmt(v0, 1, isCurrency)}, ${this.fmt(v1, 1, isCurrency)}]` });
+      }
+      return bins;
     }
 
     const rawStep = range / 10;

@@ -280,14 +280,21 @@ def filter_ranges_for(span, values):
     bin_group_candidates reports bin EDGES and the slider includes both ends, so
     handing the edges over as-is also filters in the next bin's first value. On
     days_physical_activity_week that turned a 39-teen bin into a 57-teen filter.
+
+    Always clamp, even when the last bin's label is already closed ("]") --
+    that bracket only means the bin's hi edge is meant to include the true max,
+    not that hi IS the true max: the one-bin-per-integer path (small integer
+    ranges) sets the top bin's hi to max_value + 1 as pure bin arithmetic, so
+    days_physical_activity_week (real max 7) was rendering as "7 to 8" until
+    this clamped it back down.
     """
     if not isinstance(span[0]["bin_range"], list):
         return [c["bin_range"] for c in span]
     lo = span[0]["bin_range"][0]
     hi = span[-1]["bin_range"][1]
-    if not span[-1]["bin_label"].endswith("]"):     # last bin is closed already
-        inside = [v for v in values if lo <= v < hi]
-        hi = max(inside) if inside else hi
+    closed = span[-1]["bin_label"].endswith("]")
+    inside = [v for v in values if lo <= v <= hi] if closed else [v for v in values if lo <= v < hi]
+    hi = max(inside) if inside else hi
     return [lo, hi]
 
 
