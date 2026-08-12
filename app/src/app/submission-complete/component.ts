@@ -24,6 +24,7 @@ export class SubmissionCompleteComponent implements OnInit {
       return;
     }
     const refreshed = !!localStorage.getItem(this.utilsService.getRefreshedStorageKey(this.global.participantId));
-    this.verificationCode = this.utilsService.generateVerificationCode(this.global.participantId, refreshed);
+    const insufficientDuration = !!localStorage.getItem(this.utilsService.getInsufficientDurationStorageKey(this.global.participantId));
+    this.verificationCode = this.utilsService.generateVerificationCode(this.global.participantId, refreshed, insufficientDuration);
   }
 }
