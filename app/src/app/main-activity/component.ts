@@ -65,6 +65,8 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   plotHeight: number;
   plotGroup: any;
   showPriorModal = false;
+  private elicitationStartedAt: number | null = null;
+  private elicitationEndedAt: number | null = null;
   private _llmIntervention: any = null;
   llmSummary: any = null;
   llmSummaryLoading = false;
@@ -202,6 +204,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   // underneath the still-open elicitation modal.
   onPriorModalClosed(): void {
     this.showPriorModal = false;
+    this.elicitationEndedAt = Date.now();
     if (this.global.isTutorial) {
       startTutorial(this.appConfig[this.global.appMode], this.llmRealtimeEnabled);
     }
@@ -430,6 +433,21 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     }
     const ids = Object.keys(this.appConfig[this.global.appMode]['selectedObjects']);
     const verificationCode = this.utilsService.generateVerificationCode(this.global['participantId']);
+
+    const now = Date.now();
+    const elicitationDurationMs = this.elicitationStartedAt != null && this.elicitationEndedAt != null
+      ? this.elicitationEndedAt - this.elicitationStartedAt
+      : null;
+    const mainTaskDurationMs = this.elicitationEndedAt != null
+      ? now - this.elicitationEndedAt
+      : null;
+    const insufficientDuration =
+      (elicitationDurationMs != null && elicitationDurationMs < this.utilsService.MIN_ELICITATION_MS) ||
+      (mainTaskDurationMs != null && mainTaskDurationMs < this.utilsService.MIN_MAIN_TASK_MS);
+    if (insufficientDuration) {
+      localStorage.setItem(this.utilsService.getInsufficientDurationStorageKey(this.global['participantId']), 'true');
+    }
+
     localStorage.setItem(this.getSubmissionStorageKey(), 'true');
     this.chatService.sendTaskSubmission({
       participantId: this.global['participantId'],
@@ -439,6 +457,9 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
       appLevel: this.global.appLevel,
       selected_subjects: ids,
       verificationCode: verificationCode,
+      elicitationDurationMs: elicitationDurationMs,
+      mainTaskDurationMs: mainTaskDurationMs,
+      insufficientDuration: insufficientDuration,
     });
     this.router.navigate(['/submitted'], { queryParamsHandling: 'preserve' });
   }
@@ -851,6 +872,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
       });
 
       context.showPriorModal = true;
+      context.elicitationStartedAt = Date.now();
       if (context.global.isTutorial) {
         // Let Angular render the modal before driver.js queries its DOM.
         setTimeout(() => startElicitationIntro(), 150);

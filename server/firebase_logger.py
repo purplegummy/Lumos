@@ -81,7 +81,8 @@ def save_meta(pid: str, client_record: dict):
     try:
         fields = {k: client_record.get(k) for k in
                   ("participant_id", "app_mode", "app_type", "app_level",
-                   "connected_at", "disconnected_at", "participant_id_source")}
+                   "connected_at", "disconnected_at", "participant_id_source",
+                   "priors_committed_at")}
         _participant_ref(db, pid).set(fields, merge=True)
     except Exception as e:
         print(f"[firebase_logger] save_meta error: {e}")
@@ -116,7 +117,9 @@ def save_selected_subjects(pid: str, subjects: list):
         print(f"[firebase_logger] save_selected_subjects error: {e}")
 
 
-def save_task_submission(pid: str, verification_code: str, subjects: list):
+def save_task_submission(pid: str, verification_code: str, subjects: list, submitted_at=None,
+                          elicitation_duration_ms=None, main_task_duration_ms=None,
+                          insufficient_duration=False):
     """Record that the participant submitted the task, with their verification code."""
     db = _get_db()
     if db is None:
@@ -126,6 +129,10 @@ def save_task_submission(pid: str, verification_code: str, subjects: list):
             "task_submitted": True,
             "verification_code": verification_code,
             "submitted_subjects": _sanitize(subjects),
+            "submitted_at": submitted_at,
+            "elicitation_duration_ms": elicitation_duration_ms,
+            "main_task_duration_ms": main_task_duration_ms,
+            "insufficient_duration": insufficient_duration,
         }, merge=True)
         print(f"[firebase_logger] Saved task submission for {pid}: {verification_code}")
     except Exception as e:

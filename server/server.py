@@ -193,6 +193,7 @@ async def on_commit_priors(sid, data):
             client["priors"][key] = belief
 
         print(f"[on_commit_priors] priors keys now: {sorted(client['priors'].keys())}")
+        client["priors_committed_at"] = bias_util.get_current_time()
         firebase_logger.save_priors(pid, client["priors"])
         firebase_logger.save_meta(pid, client)
 
@@ -259,9 +260,20 @@ async def on_task_submitted(sid, data):
     pid = data.get("participantId")
     code = data.get("verificationCode")
     subjects = data.get("selected_subjects", [])
+    elicitation_duration_ms = data.get("elicitationDurationMs")
+    main_task_duration_ms = data.get("mainTaskDurationMs")
+    insufficient_duration = bool(data.get("insufficientDuration"))
     if pid:
-        firebase_logger.save_task_submission(pid, code, subjects)
-        print(f"Task submitted for {pid}: {code}")
+        submitted_at = bias_util.get_current_time()
+        firebase_logger.save_task_submission(
+            pid, code, subjects, submitted_at,
+            elicitation_duration_ms=elicitation_duration_ms,
+            main_task_duration_ms=main_task_duration_ms,
+            insufficient_duration=insufficient_duration,
+        )
+        print(f"Task submitted for {pid}: {code}"
+              f" | elicitation_ms={elicitation_duration_ms} main_task_ms={main_task_duration_ms}"
+              f" insufficient_duration={insufficient_duration}")
 
         # --- SelectionBias percentile: computed ONCE here at submit time from the
         # CACHED dc_map + the FINAL submitted selection (no DC recompute). Shiyao
