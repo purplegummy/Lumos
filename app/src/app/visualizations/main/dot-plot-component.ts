@@ -79,7 +79,7 @@ export class DotPlot {
 
     // Add legend group, text and gradient rectangle
     context.dotPlotConfig.legendGroup = context.plotGroup.append("g").classed("legend", true);
-    if (true) {
+    if (context.global.appLayout !== 'CONTROL') {
       let xPos = context.plotWidth; // x position of element, gets updated dynamically
       const pad = 5; // padding between elements
       const gradRectWidth = context.plotWidth / 5; // width of gradient rectangle
