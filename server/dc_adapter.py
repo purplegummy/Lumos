@@ -338,3 +338,66 @@ def compute_dwell_percentile(detailed_map, dwell, n_trials=1000, rng=None):
         "dwell_bias_percentile": dc_metric.dwell_bias_percentile(
             detailed_map, dwell, n_trials, rng),
     }
+
+
+def scoped_detailed_map(dc_map_detailed, visible_vars):
+    """Re-pool each teen's DC over ONLY the currently-visible axis variables.
+
+    The dwell trigger fires off DwellBias scored against a null distribution, and
+    both the real score and the null read one number per teen: entry["dc"], the
+    pooled weighted mean of that teen's per-variable belief-consistency
+    (Sum_v w_v*C_v / Sum_v w_v). This returns a NEW detailed map whose "dc" is that
+    same weighted mean but restricted to visible_vars, so the entire unchanged
+    percentile pipeline (dc_metric.dwell_bias / sample_null_dwell_bias /
+    dwell_bias_percentile) then scores the trigger on just what the participant has
+    on screen, instead of on all six beliefs pooled.
+
+    Nothing in dc_metric is touched: the re-pool uses each teen's ALREADY-computed
+    "consistency"/"weights" dicts (from _consistency_and_weights_for_teen), so no DC
+    is recomputed. Weight is teen-independent, so this is a pure reshape.
+
+    Args:
+        dc_map_detailed: cached dc_map_detailed, {teen: {"dc", "consistency",
+            "weights"}}. NOT mutated -- a fresh dict is built per teen.
+        visible_vars: the variables currently on the x/y axes. Nones are dropped
+            first (get_current_axes returns one None when only one axis is
+            assigned), so a single-axis view scopes to the one variable present.
+
+    Returns:
+        A new {teen: {"dc", "consistency", "weights"}} map. "consistency" and
+        "weights" are the SAME (unchanged) dicts as the input -- only "dc" is
+        recomputed -- so the caller's full-pooled map (e.g. the summary path) is
+        never affected. Sum_v w_v == 0 over the visible subset -> "dc" 0.0, the
+        same 0/0 guard dc_for_teen uses.
+
+    Raises:
+        ValueError if no visible variable remains after dropping Nones.
+        KeyError (fail-loud, per convention) if NONE of the visible variables is in
+            a teen's consistency dict -- an axis carrying a non-belief attribute.
+            A partial miss (at least one visible var present) scopes to whatever is
+            present rather than raising.
+    """
+    requested = list(dict.fromkeys(v for v in visible_vars if v is not None))
+    if not requested:
+        raise ValueError(
+            f"[scoped_detailed_map] no visible variables to scope to "
+            f"(visible_vars={visible_vars!r})")
+
+    scoped = {}
+    for tid, entry in dc_map_detailed.items():
+        consistency = entry["consistency"]
+        weights = entry["weights"]
+        present = [v for v in requested if v in consistency]
+        if not present:
+            raise KeyError(
+                f"[scoped_detailed_map] none of the visible variables {requested} "
+                f"are in teen {tid!r}'s consistency {list(consistency.keys())}")
+        numerator = sum(weights[v] * consistency[v] for v in present)
+        denominator = sum(weights[v] for v in present)
+        scoped_dc = 0.0 if denominator == 0.0 else numerator / denominator
+        # Reuse (do not copy) the original consistency/weights dicts: only "dc"
+        # differs, and the input map must stay intact for the pooled callers.
+        scoped[tid] = {"dc": scoped_dc,
+                       "consistency": consistency,
+                       "weights": weights}
+    return scoped

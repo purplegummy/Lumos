@@ -3,19 +3,27 @@
 Two responsibilities live here, kept small so the socket layer never changes
 when the trigger policy does:
 
-1. evaluate_trigger -- the realtime dwell decision. Readiness gates (enough total
-   dwell time and enough distinct teens) plus a recheck-spacing gate, then fire
-   when the observed DwellBias sits at or above DWELL_PERCENTILE_THRESHOLD of its
-   null distribution (dc_metric.dwell_bias_percentile). should_trigger is a thin
-   bool wrapper over it for callers that don't need the reason.
+1. evaluate_trigger -- the realtime dwell decision. A global readiness gate (enough
+   total dwell time and enough distinct teens) plus a PER-VARIABLE recheck-spacing
+   gate, then fire when the observed DwellBias sits at or above
+   DWELL_PERCENTILE_THRESHOLD of its null distribution (dc_metric.
+   dwell_bias_percentile). The DwellBias is SCOPED to the x/y variables the
+   participant currently has on screen AND off cooldown -- dc_adapter re-pools DC
+   over those (axes from llm_intervention.get_current_axes) before the same
+   percentile test -- so the trigger reflects what is being looked at, not all six
+   beliefs pooled, and one axis cooling down never blocks the other. should_trigger
+   is a thin bool wrapper for callers that don't need the reason.
 
 2. evaluate_summary_trigger -- the pre-submission summary decision: the same
    percentile test scored on the final selection
    (dc_metric.selection_bias_percentile) rather than on dwell.
 
-This module reads from dc_metric only; it does not modify it.
+This module reads from dc_metric (scoring) plus dc_adapter (the scoped-map
+reshape) and llm_intervention (get_current_axes); it modifies none of them.
 """
+import dc_adapter
 import dc_metric
+import llm_intervention
 
 
 # --------------------------------------------------------------------------- #
@@ -26,7 +34,7 @@ import dc_metric
 MIN_UNIQUE_HOVERS = 5              # distinct teens the participant lingered on
 MIN_TOTAL_DWELL_SECONDS = 20.0     # total hover time before we score at all
 DWELL_PERCENTILE_THRESHOLD = 0.80  # fire when DwellBias is at/above this percentile
-DWELL_RECHECK_SECONDS = 10.0       # min extra dwell time between two percentile checks
+DWELL_RECHECK_SECONDS = 10.0       # min extra dwell between two checks of the SAME axis var
 
 # --------------------------------------------------------------------------- #
 # Summary gate -- the pre-submission reflection, scored on the participant's
@@ -43,27 +51,34 @@ def evaluate_trigger(client_record, dwell_metrics):
       * fired  -- bool.
       * reason -- a short code so a server log makes it obvious which condition
         blocked it: "ok" | "no_dwell_bias" | "not_ready" | "too_soon" |
-        "below_percentile".
+        "no_visible_axes" | "scope_failed (...)" | "below_percentile".
       * trace  -- {"dwell_bias_percentile", "n_dwelled", "total_dwell_seconds"},
         the diagnostic values behind the decision (persisted on every call for
-        trigger-policy analysis). dwell_bias_percentile is None whenever the gates
-        stopped short of computing it.
+        trigger-policy analysis). dwell_bias_percentile here is scoped to the
+        visible axis variables that are off cooldown, and is None whenever the
+        gates stopped short of computing it (no axes yet, all visible vars still
+        cooling, or an axis carrying a non-belief attribute).
 
     Policy: enough attention to score (>= MIN_TOTAL_DWELL_SECONDS of dwell AND
-    >= MIN_UNIQUE_HOVERS distinct teens), rechecked no more than once per
-    DWELL_RECHECK_SECONDS of additional dwell, then fire when the observed
-    DwellBias sits at or above DWELL_PERCENTILE_THRESHOLD of its null distribution
-    (dc_metric.dwell_bias_percentile). The raw score's sign is NOT gated: a high
-    enough percentile fires even when DwellBias is negative (the positive-score
-    requirement was removed in pilot round 2).
+    >= MIN_UNIQUE_HOVERS distinct teens -- a GLOBAL, variable-agnostic readiness
+    gate), then a PER-VARIABLE recheck gate: each currently-visible axis variable
+    is rechecked no more than once per DWELL_RECHECK_SECONDS of additional (global)
+    dwell since THAT variable was last checked, so one axis cooling down never
+    blocks the other. The DwellBias is then SCOPED to the visible variables that
+    are off cooldown and scored against its null (dc_metric.dwell_bias_percentile);
+    it fires at or above DWELL_PERCENTILE_THRESHOLD. The raw score's sign is NOT
+    gated: a high enough percentile fires even when DwellBias is negative (the
+    positive-score requirement was removed in pilot round 2).
 
-    Side effect: records dwell_last_checked_seconds on client_record every time a
-    percentile check is actually run (not only on fire), so rechecks are spaced by
-    accumulated dwell. On fire, the caller (on_interaction) refreshes
+    Side effect: records dwell_last_checked_by_var[v] on client_record for each
+    variable v actually rechecked this call (not only on fire), so rechecks are
+    spaced per variable by accumulated dwell; and on fire records
+    dwell_last_fired_vars (the checked vars) so reset_dwell_watermark rebases
+    exactly them on dismiss. On fire, the caller (on_interaction) refreshes
     llm_last_fired_at.
 
     client_record: the CLIENTS[pid] dict (reads bias_logs / dc_map_detailed /
-                   dwell_last_checked_seconds).
+                   dwell_last_checked_by_var).
     dwell_metrics: the dict from dc_adapter.compute_dwell_metrics, i.e.
                    {"dwell_bias", "dwell_bias_v", "n_dwelled"}.
     """
@@ -80,26 +95,91 @@ def evaluate_trigger(client_record, dwell_metrics):
     if observed is None:
         return False, "no_dwell_bias", trace
 
-    # --- readiness: enough attention to score at all -------------------------
+    # --- readiness: enough attention to score at all (GLOBAL, variable-agnostic)
     if total_dwell_seconds < MIN_TOTAL_DWELL_SECONDS or n_dwelled < MIN_UNIQUE_HOVERS:
         return False, (f"not_ready ({total_dwell_seconds:.1f}s/{MIN_TOTAL_DWELL_SECONDS}s, "
                        f"{n_dwelled}/{MIN_UNIQUE_HOVERS} teens)"), trace
 
-    # --- recheck spacing: don't re-score on every interaction ----------------
-    last_checked = client_record.get("dwell_last_checked_seconds")
-    if last_checked is not None and total_dwell_seconds - last_checked < DWELL_RECHECK_SECONDS:
-        return False, (f"too_soon ({total_dwell_seconds - last_checked:.1f}s < "
-                       f"{DWELL_RECHECK_SECONDS}s of new dwell)"), trace
-    # A check is happening now; record it regardless of the fire outcome below.
-    client_record["dwell_last_checked_seconds"] = total_dwell_seconds
+    # --- resolve the visible axes ONCE: shared by the recheck gate and the
+    # scoped percentile below (both need to know which variables are on screen).
+    axes = llm_intervention.get_current_axes(client_record)
+    visible_vars = list(dict.fromkeys(
+        v for v in (axes.get("x"), axes.get("y")) if v is not None))
+    if not visible_vars:
+        return False, "no_visible_axes", trace
 
-    # --- C1: DwellBias percentile against its null distribution --------------
-    pct = dc_metric.dwell_bias_percentile(client_record["dc_map_detailed"], dwell)
+    # --- recheck spacing, PER VISIBLE VARIABLE -------------------------------
+    # Each axis variable carries its own "last checked at" (in global pooled dwell
+    # seconds); one cooling down does not block the other. Recheck whichever visible
+    # variables have earned >= DWELL_RECHECK_SECONDS of new dwell since THEIR own
+    # last check, and skip the rest.
+    checked_at = client_record.setdefault("dwell_last_checked_by_var", {})
+    ready_vars = [v for v in visible_vars
+                  if total_dwell_seconds - checked_at.get(v, 0.0) >= DWELL_RECHECK_SECONDS]
+    if not ready_vars:
+        # None ready: report the one closest to ready (most new dwell so far).
+        best = max(total_dwell_seconds - checked_at.get(v, 0.0) for v in visible_vars)
+        return False, (f"too_soon ({best:.1f}s < {DWELL_RECHECK_SECONDS}s of new "
+                       f"dwell for any visible var)"), trace
+
+    # --- C1: DwellBias percentile against its null, SCOPED to the READY vars ---
+    # Score on just the visible variables that are off cooldown (the pooled six-
+    # belief DC is never used). A cooling variable is left out of the scope even
+    # though it is on screen, so its attention neither earns nor blocks a fire.
+    pct, scoped_observed, scope_reason = _scoped_dwell_percentile(
+        client_record, dwell, ready_vars)
     trace["dwell_bias_percentile"] = pct
-    if pct is None or pct < DWELL_PERCENTILE_THRESHOLD:
-        return False, f"below_percentile (pct={pct}, observed={observed:+.4f})", trace
+    if scope_reason is not None:
+        return False, scope_reason, trace
+    # A real check ran over ready_vars; advance THEIR clocks regardless of the fire
+    # outcome below (the cooling vars' timestamps stay untouched).
+    for v in ready_vars:
+        checked_at[v] = total_dwell_seconds
 
+    if pct is None or pct < DWELL_PERCENTILE_THRESHOLD:
+        # observed is the SCOPED DwellBias (same ready-var scope as pct), not the
+        # pooled dwell_metrics value, so the log names the score pct reflects.
+        return False, f"below_percentile (pct={pct}, observed={scoped_observed:+.4f})", trace
+
+    # Fired. Remember which variables this check covered so a later dismiss rebases
+    # exactly their cooldowns (the visible axes may differ by dismiss time).
+    client_record["dwell_last_fired_vars"] = list(ready_vars)
     return True, "ok", trace
+
+
+def _scoped_dwell_percentile(client_record, dwell, scope_vars):
+    """Scoped DwellBias percentile + its scoped observed value + a not-ready reason,
+    computed over scope_vars only. -> (pct, observed, reason).
+
+    (float|None, float, None)   -- the scoped percentile and the scoped DwellBias it
+                                   was scored from (the re-pooled dwell_bias over
+                                   scope_vars), so a below_percentile log names the
+                                   score pct actually reflects. pct is None only for
+                                   the empty-dwell k==0 case dc_metric guards, which
+                                   the readiness gate rules out first.
+    (None, None, "scope_failed (...)") -- scope_vars carry no belief variable, so
+                                   scoped_detailed_map could not build a map. Caught
+                                   here and treated as not-ready rather than
+                                   propagated -- the same handler-boundary guard
+                                   on_interaction uses for the dwell metrics.
+
+    scope_vars is the caller's already-resolved list of visible variables that are
+    off cooldown (Nones/dupes already dropped). Only the per-teen DC is re-pooled
+    over them; the dwell weights (per teen) are untouched, so this stays the point-
+    level DwellBias null test on a scoped score. The scoped map is built ONCE and
+    feeds both outputs. rng is left default (global np.random), matching live.
+    """
+    try:
+        scoped = dc_adapter.scoped_detailed_map(
+            client_record["dc_map_detailed"], scope_vars)
+    except Exception as e:
+        print(f"[DWELL] scoped map failed: {e}", flush=True)
+        return None, None, f"scope_failed ({e})"
+    # One scoped map feeds both the null-distribution percentile and the observed
+    # DwellBias it is scored against (dwell_bias is a cheap re-read, no sampling).
+    pct = dc_metric.dwell_bias_percentile(scoped, dwell)
+    observed = dc_metric.dwell_bias(scoped, dwell)
+    return pct, observed, None
 
 
 def should_trigger(client_record, dwell_metrics):
@@ -114,15 +194,28 @@ def should_trigger(client_record, dwell_metrics):
 
 
 def reset_dwell_watermark(client_record):
-    """Restart the recheck window from the dwell accumulated so far.
+    """Rebase the recheck window for the variable(s) the dismissed intervention was
+    scored on, from the dwell accumulated so far.
 
-    Called when the participant's panel goes away. The spacing above is measured
-    in NEW hover time, so without this the seconds spent reading one intervention
-    count toward earning the next one -- they would be paying for a reminder they
-    were still looking at.
+    Called when the participant's panel goes away (on_llm_dismissed). The spacing is
+    measured in NEW hover time, so without this the seconds spent reading one
+    intervention would count toward earning the next -- they would be paying for a
+    reminder they were still looking at.
+
+    Rebases ONLY the variables that were part of the check that fired the dismissed
+    intervention (recorded as dwell_last_fired_vars when it fired), NOT whatever is
+    on the axes at dismiss time -- the participant may have switched axes while the
+    panel was up. Every other variable's clock is left exactly where it was. The
+    fired-vars marker is consumed here so a stray repeat dismiss cannot re-rebase.
     """
+    fired_vars = client_record.pop("dwell_last_fired_vars", None)
+    if not fired_vars:
+        return
     dwell = dc_metric.dwell_by_teen(client_record.get("bias_logs", []))
-    client_record["dwell_last_checked_seconds"] = sum(dwell.values()) / 1000.0
+    now_seconds = sum(dwell.values()) / 1000.0
+    checked_at = client_record.setdefault("dwell_last_checked_by_var", {})
+    for v in fired_vars:
+        checked_at[v] = now_seconds
 
 
 def evaluate_summary_trigger(client_record, selection_metrics, selected_ids):
