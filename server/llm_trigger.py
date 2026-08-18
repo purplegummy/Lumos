@@ -1,6 +1,6 @@
 """Trigger logic for the LLM intervention condition.
 
-Two responsibilities live here, kept small so the socket layer never changes
+Three responsibilities live here, kept small so the socket layer never changes
 when the trigger policy does:
 
 1. evaluate_trigger -- the realtime dwell decision. A global readiness gate (enough
@@ -17,6 +17,10 @@ when the trigger policy does:
 2. evaluate_summary_trigger -- the pre-submission summary decision: the same
    percentile test scored on the final selection
    (dc_metric.selection_bias_percentile) rather than on dwell.
+
+3. evaluate_selection_trigger -- the mid-task selection decision, evaluated on every
+   added pick. Same score as (2) behind a pick-counted cooldown; it is the seam
+   Lester's per-variable rewrite drops into.
 
 This module reads from dc_metric (scoring) plus dc_adapter (the scoped-map
 reshape) and llm_intervention (get_current_axes); it modifies none of them.
@@ -43,6 +47,7 @@ DWELL_RECHECK_SECONDS = 10.0       # min extra dwell between two checks of the S
 # --------------------------------------------------------------------------- #
 MIN_SELECTIONS = 5                     # too few picks makes the mean DC meaningless
 SELECTION_PERCENTILE_THRESHOLD = 0.80  # fire when SelectionBias is at/above this percentile
+SELECTION_RECHECK_PICKS = 2            # extra picks between two selection-time fires
 
 def evaluate_trigger(client_record, dwell_metrics):
     """Decide whether to fire a realtime intervention, AND say why not.
@@ -250,3 +255,35 @@ def evaluate_summary_trigger(client_record, selection_metrics, selected_ids):
         return False, f"below_percentile (pct={pct}, observed={observed:+.4f})"
 
     return True, "ok"
+
+
+def evaluate_selection_trigger(client_record, selection_metrics, selected_ids):
+    """Decide whether to fire a selection intervention mid-task, AND say why not.
+
+    Returns (fired, reason), the same shape as evaluate_summary_trigger. Called on
+    every added pick rather than once at submit, so unlike the summary it carries a
+    cooldown: SELECTION_RECHECK_PICKS additional picks must be made after a fire
+    before the next one can. Counted in picks for the same reason the realtime gate
+    counts dwell seconds -- the spacing has to be in the currency of the behaviour
+    that earns the intervention.
+
+    SEAM: the bias decision itself is delegated, and is the ONLY part Lester's
+    rewrite replaces. His version scores per-variable selection_bias_v and hands
+    back the variable that fired; until then the existing submit-time check stands
+    in, which shares the MIN_SELECTIONS gate this needs anyway ("from the 5th pick
+    onward"). Everything around it -- when it is called, the cooldown, the
+    blocking dialogue the caller raises -- is independent of that choice.
+
+    Side effect on fire: records selection_last_fired_n so the cooldown above is
+    measured from the pick count that fired.
+    """
+    n_selected = selection_metrics.get("n_selected", 0)
+    last_fired_n = client_record.get("selection_last_fired_n")
+    if last_fired_n is not None and n_selected - last_fired_n < SELECTION_RECHECK_PICKS:
+        return False, (f"cooldown ({n_selected - last_fired_n} < "
+                       f"{SELECTION_RECHECK_PICKS} picks since the last one)")
+
+    fired, reason = evaluate_summary_trigger(client_record, selection_metrics, selected_ids)
+    if fired:
+        client_record["selection_last_fired_n"] = n_selected
+    return fired, reason

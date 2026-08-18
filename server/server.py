@@ -533,6 +533,52 @@ async def on_interaction(sid, data):
         except Exception as e:
             print(f"[LLM] trigger failed: {e}", flush=True)
 
+    # --- LLM selection intervention (summary conditions) ----------------------
+    # Evaluated on every added pick rather than once at submit, so the feedback
+    # arrives while there are still picks left to change. Fires the SAME panel the
+    # realtime nudge uses; what is new here is the holding dialogue the frontend
+    # raises on the pending event below, which keeps the participant from picking
+    # two or three more teens during the ~10s generation.
+    if (app_type in LLM_SUMMARY_TYPES
+            and interaction_type == "click_add_item"
+            and CLIENTS[pid].get("dc_map_detailed")):
+        try:
+            client_record = CLIENTS[pid]
+            selected = dc_adapter.selected_ids(client_record["bias_logs"])
+            selection = llm_intervention.selection_metrics(
+                client_record["dc_map_detailed"], selected)
+            fired, reason = llm_trigger.evaluate_selection_trigger(
+                client_record, selection, selected)
+            firebase_logger.save_logs(pid, [{
+                "kind": "selection_trigger",
+                "participant_id": pid,
+                "created_at": bias_util.get_current_time(),
+                "fired": fired,
+                "reason": reason,
+                "selection_bias": selection["selection_bias"],
+                "selection_bias_v": selection["selection_bias_v"],
+                "n_selected": selection["n_selected"],
+            }])
+            if fired:
+                print(f"[LLM] {pid}: selection triggered "
+                      f"(selection_bias={selection['selection_bias']:+.4f}, "
+                      f"n_selected={selection['n_selected']})", flush=True)
+                # Sent before the background task starts, so selection is closed
+                # for the whole generation rather than from whenever it finishes.
+                await SIO.emit(llm_intervention.SELECTION_PENDING_EVENT,
+                               {"active": True}, room=sid)
+                SIO.start_background_task(
+                    llm_intervention.generate_selection_and_emit,
+                    SIO, CLIENT_PARTICIPANT_ID_SOCKET_ID_MAPPING, pid,
+                    client_record, selection,
+                    bias.DATA_MAP.get(app_mode, {}).get("data", {}), selected)
+            else:
+                print(f"[LLM] {pid}: selection not triggered ({reason})", flush=True)
+        except Exception as e:
+            # Same handler-boundary guard as the dwell path: selection_metrics is
+            # fail-loud, and a broken intervention must never break a pick.
+            print(f"[LLM] selection trigger failed: {e}", flush=True)
+
 
 if __name__ == "__main__":
     bias.precompute_distributions()

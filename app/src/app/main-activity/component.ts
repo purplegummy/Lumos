@@ -73,6 +73,12 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   private llmSummaryRequested = false;
   private llmSummaryTimer: any = null;
   private llmPanelTimer: any = null;
+  // Selection is held closed from the moment the selection intervention fires
+  // until its message arrives -- generation takes ~10s, and without this the
+  // participant picks two or three more teens before there is anything to react
+  // to. The holding dialogue's own backdrop is what actually blocks the clicks.
+  llmSelectionPending = false;
+  private llmSelectionTimer: any = null;
   // Tutorial's LLM panel has no real server round trip to drive it (chatService
   // is a no-op in tutorial mode), so it's derived live from whatever point is
   // currently hovered instead of the one canned message the real study gets
@@ -195,8 +201,11 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     return this.requiredSelections * 31;
   }
 
+  // The selection intervention lands in this same panel, so the summary
+  // conditions need it too even though they have no realtime dwell nudge.
   get showLlmPanel(): boolean {
-    return this.llmRealtimeEnabled && this.llmIntervention != null;
+    return (this.llmRealtimeEnabled || this.llmSummaryEnabled)
+      && this.llmIntervention != null;
   }
 
   // Phase 1 (prior belief elicitation) must fully finish before phase 2 (the
@@ -398,6 +407,12 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     this.chatService.sendLlmDismissed({
       participantId: this.global['participantId'],
     });
+  }
+
+  /** Reopen selection, however the pending state ended. */
+  endLlmSelectionPending(): void {
+    clearTimeout(this.llmSelectionTimer);
+    this.llmSelectionPending = false;
   }
 
   /** Apply a summary theme's filters and step back into the task to revise. */
@@ -862,9 +877,23 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
 
       context.chatService.getLlmIntervention().subscribe((obj) => {
         context.llmIntervention = obj;
+        context.endLlmSelectionPending();
         clearTimeout(context.llmPanelTimer);
         context.llmPanelTimer = setTimeout(
           () => context.dismissLlmPanel(), LLM_PANEL_TIMEOUT_MS);
+      });
+
+      context.chatService.getLlmSelectionPending().subscribe((obj) => {
+        if (obj && obj["active"]) {
+          context.llmSelectionPending = true;
+          // Nothing else can lower it if the socket drops mid-generation, and a
+          // holding dialogue with no buttons would leave the task unfinishable.
+          clearTimeout(context.llmSelectionTimer);
+          context.llmSelectionTimer = setTimeout(
+            () => context.endLlmSelectionPending(), LLM_SUMMARY_TIMEOUT_MS);
+        } else {
+          context.endLlmSelectionPending();
+        }
       });
 
       context.chatService.getLlmSummary().subscribe((obj) => {

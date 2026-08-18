@@ -64,6 +64,11 @@ SUPPORTED_VARIABLES = {
     "child_sex",                           # categorical, only two categories
 }
 SUMMARY_EVENT = "llm_summary"
+# Raised the moment the selection intervention fires and lowered when its message
+# (or the news that none is coming) arrives. Generation takes ~10s, long enough for
+# the participant to pick two or three more teens before seeing anything, so the
+# frontend holds selection closed for exactly that window.
+SELECTION_PENDING_EVENT = "llm_selection_pending"
 
 FALLBACK_SUMMARY = {
     "awareness_summary": "Thank you for completing the selections.",
@@ -700,6 +705,40 @@ async def generate_and_emit(sio, sid_by_pid, pid, client_record, dwell_metrics, 
         trigger_signal="point-level dwell bias exceeded participant-specific threshold",
         event="llm_intervention",
         axes=get_current_axes(client_record))
+
+
+async def generate_selection_and_emit(sio, sid_by_pid, pid, client_record,
+                                      selection, teens, selected_ids):
+    """Background task: the mid-task intervention over the teens picked so far.
+
+    Emits the realtime panel's own event, so the message lands in the panel the
+    participant already knows -- countdown bar, self-dismissal and all -- rather
+    than in a second surface that behaves almost but not quite the same.
+
+    phase stays "realtime" because that is what this is now: a live nudge with
+    picks left to change, not the pre-submission recap the summary phases write.
+    Only the attention input differs (the selection instead of dwell), which is the
+    one axis the two paths were always meant to differ on.
+
+    Always ends the pending state: the frontend has selection closed until it
+    hears back, so a generation that produced nothing still has to say so.
+    """
+    generated = await _generate_and_emit(
+        sio, sid_by_pid, pid, client_record, teens,
+        weights={teen_id: 1.0 for teen_id in selected_ids},
+        attention={"selected_ids": selected_ids},
+        bias_v=selection.get("selection_bias_v", {}),
+        phase="realtime",
+        trigger_signal="bias over the teens picked so far exceeded "
+                       "participant-specific threshold",
+        event="llm_intervention",
+        axes=None)
+    if not generated:
+        room = live_room(sio, sid_by_pid, pid)
+        if room is not None:
+            await sio.emit(SELECTION_PENDING_EVENT, {"active": False}, room=room)
+        print(f"[LLM] {pid}: selection intervention produced nothing; "
+              f"selection released", flush=True)
 
 
 async def generate_summary_and_emit(sio, sid_by_pid, pid, client_record,
