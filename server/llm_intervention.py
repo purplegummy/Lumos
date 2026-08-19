@@ -720,40 +720,6 @@ async def generate_and_emit(sio, sid_by_pid, pid, client_record, dwell_metrics, 
         axes=get_current_axes(client_record))
 
 
-async def generate_selection_and_emit(sio, sid_by_pid, pid, client_record,
-                                      selection, teens, selected_ids):
-    """Background task: the mid-task intervention over the teens picked so far.
-
-    Emits the realtime panel's own event, so the message lands in the panel the
-    participant already knows -- countdown bar, self-dismissal and all -- rather
-    than in a second surface that behaves almost but not quite the same.
-
-    phase stays "realtime" because that is what this is now: a live nudge with
-    picks left to change, not the pre-submission recap the summary phases write.
-    Only the attention input differs (the selection instead of dwell), which is the
-    one axis the two paths were always meant to differ on.
-
-    Always ends the pending state: the frontend has selection closed until it
-    hears back, so a generation that produced nothing still has to say so.
-    """
-    generated = await _generate_and_emit(
-        sio, sid_by_pid, pid, client_record, teens,
-        weights={teen_id: 1.0 for teen_id in selected_ids},
-        attention={"selected_ids": selected_ids},
-        bias_v=selection.get("selection_bias_v", {}),
-        phase="realtime",
-        trigger_signal="bias over the teens picked so far exceeded "
-                       "participant-specific threshold",
-        event="llm_intervention",
-        axes=None)
-    if not generated:
-        room = live_room(sio, sid_by_pid, pid)
-        if room is not None:
-            await sio.emit(SELECTION_PENDING_EVENT, {"active": False}, room=room)
-        print(f"[LLM] {pid}: selection intervention produced nothing; "
-              f"selection released", flush=True)
-
-
 async def generate_summary_and_emit(sio, sid_by_pid, pid, client_record,
                                     selection, teens, selected_ids, biased=True):
     """Background task: the same pipeline, run on the FINAL SELECTION at submit.
@@ -800,8 +766,9 @@ async def generate_selection_and_emit(sio, sid_by_pid, pid, client_record,
     having been selected (as the summary path does), the per-variable scores come from
     the selection, and -- unlike the submit summary -- the phase and event are the
     REALTIME ones ("realtime" / "llm_intervention"), so this delivers a live nudge and
-    never blocks a submit. There is no fallback emit: like the realtime dwell path (and
-    unlike the summary), a failed or undelivered generation stays silent.
+    never blocks a submit. There is no fallback MESSAGE, but the pending state must
+    still end: the frontend has selection closed until it hears back, so a generation
+    that produced nothing has to say so.
 
     target_var is the variable the progressive trigger fired on (argmax of the
     per-variable selection percentiles). It is passed as force_variable, a HARD
@@ -809,11 +776,8 @@ async def generate_selection_and_emit(sio, sid_by_pid, pid, client_record,
     to that variable, unlike the realtime dwell path's soft top-3 axis preference.
     axes is None here: selection has no real axes, and force_variable fully replaces
     that lever. target_var is expected non-None (the caller only runs this on a fire).
-
-    Not wired to any handler yet (Sung's repeat cooldown is pending); called directly
-    only from its unit test for now.
     """
-    return await _generate_and_emit(
+    generated = await _generate_and_emit(
         sio, sid_by_pid, pid, client_record, teens,
         weights={teen_id: 1.0 for teen_id in selected_ids},
         attention={"selected_ids": selected_ids},
@@ -825,6 +789,13 @@ async def generate_selection_and_emit(sio, sid_by_pid, pid, client_record,
         # Hard-pin the message to the fired variable (not the soft axis steer).
         axes=None,
         force_variable=target_var)
+    if not generated:
+        room = live_room(sio, sid_by_pid, pid)
+        if room is not None:
+            await sio.emit(SELECTION_PENDING_EVENT, {"active": False}, room=room)
+        print(f"[LLM] {pid}: selection intervention produced nothing; "
+              f"selection released", flush=True)
+    return generated
 
 
 async def _generate_and_emit(sio, sid_by_pid, pid, client_record, teens,

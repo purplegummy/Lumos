@@ -547,21 +547,24 @@ async def on_interaction(sid, data):
             selected = dc_adapter.selected_ids(client_record["bias_logs"])
             selection = llm_intervention.selection_metrics(
                 client_record["dc_map_detailed"], selected)
-            fired, reason = llm_trigger.evaluate_selection_trigger(
-                client_record, selection, selected)
+            result = llm_trigger.evaluate_selection_trigger(client_record, selected)
+            fired = bool(result.get("fired"))
             firebase_logger.save_logs(pid, [{
                 "kind": "selection_trigger",
                 "participant_id": pid,
                 "created_at": bias_util.get_current_time(),
                 "fired": fired,
-                "reason": reason,
+                "reason": result["reason"],
+                "target_var": result.get("target_var"),
+                "target_percentile": result.get("target_percentile"),
+                "percentile_by_var": result.get("percentile_by_var"),
                 "selection_bias": selection["selection_bias"],
                 "selection_bias_v": selection["selection_bias_v"],
                 "n_selected": selection["n_selected"],
             }])
             if fired:
-                print(f"[LLM] {pid}: selection triggered "
-                      f"(selection_bias={selection['selection_bias']:+.4f}, "
+                print(f"[LLM] {pid}: selection triggered on {result['target_var']} "
+                      f"(pct={result['target_percentile']}, "
                       f"n_selected={selection['n_selected']})", flush=True)
                 # Sent before the background task starts, so selection is closed
                 # for the whole generation rather than from whenever it finishes.
@@ -571,9 +574,11 @@ async def on_interaction(sid, data):
                     llm_intervention.generate_selection_and_emit,
                     SIO, CLIENT_PARTICIPANT_ID_SOCKET_ID_MAPPING, pid,
                     client_record, selection,
-                    bias.DATA_MAP.get(app_mode, {}).get("data", {}), selected)
+                    bias.DATA_MAP.get(app_mode, {}).get("data", {}), selected,
+                    result["target_var"])
             else:
-                print(f"[LLM] {pid}: selection not triggered ({reason})", flush=True)
+                print(f"[LLM] {pid}: selection not triggered ({result['reason']})",
+                      flush=True)
         except Exception as e:
             # Same handler-boundary guard as the dwell path: selection_metrics is
             # fail-loud, and a broken intervention must never break a pick.
