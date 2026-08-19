@@ -239,6 +239,75 @@ def test_null_axes_handled_without_error():
         == "hours_sleep_weeknight"
 
 
+# --- force_variable: hard override, highest precedence ----------------------
+def test_force_variable_overrides_argmax_and_axes():
+    """force_variable is returned verbatim, bypassing the supported/positive filter,
+    the ranking, AND the axis preference (force wins over axes)."""
+    # beats the raw argmax (no axes)
+    assert top_variable({"screen_time_weekday": 0.9, "hours_sleep_weeknight": 0.6},
+                        force_variable="hours_sleep_weeknight") == "hours_sleep_weeknight"
+    # beats an axis preference that would otherwise win -> force has priority
+    assert top_variable(
+        _AXIS_BIAS_V,
+        axes={"x": "hours_sleep_weeknight", "y": None},      # normally wins (:198 test)
+        force_variable="days_physical_activity_week") == "days_physical_activity_week"
+    # blind: bypasses the supported/positive filter entirely (returns a <=0 / any name)
+    assert top_variable({"screen_time_weekday": -0.9},
+                        force_variable="hours_sleep_weeknight") == "hours_sleep_weeknight"
+    # None (the default) leaves the existing argmax path unchanged
+    assert top_variable({"screen_time_weekday": 0.9, "hours_sleep_weeknight": 0.6},
+                        force_variable=None) == "screen_time_weekday"
+
+
+def test_force_variable_threads_to_both_top_variable_call_sites():
+    """Desync-trap regression: force_variable must reach BOTH resolutions -- the cell-
+    grid one in _generate_and_emit AND the message one in assemble_llm_input (via
+    session) -- so the grid and the text never name different variables.
+
+    Runs the real _generate_and_emit with a spy on top_variable (bin_group_candidates
+    stubbed so it reaches assemble_llm_input without real belief data). bias_v's argmax
+    is a DIFFERENT variable than the forced one, so a missing session thread would make
+    the second call fall back to the argmax and fail this test.
+    """
+    import asyncio
+    import dc_metric
+    import llm_intervention
+
+    forced = "hours_sleep_weeknight"
+    bias_v = {"screen_time_weekday": 0.9, "hours_sleep_weeknight": 0.1}  # argmax != forced
+
+    calls = []
+    real_top = llm_intervention.top_variable
+
+    def spy(dwell_bias_v, axes=None, force_variable=None):
+        result = real_top(dwell_bias_v, axes, force_variable)
+        calls.append(result)
+        return result
+
+    # A cell that makes select_candidate_cell return None cleanly (nothing to surface),
+    # so assembly stops right after the 2nd top_variable call -- no API key needed.
+    stub_cell = {"underexploration": 0.0, "vc": 0.0, "bin_range": [0, 1],
+                 "bin_label": "[0, 1)", "bin_index": 0, "group": "diagnosed",
+                 "dataset_share": 1.0}
+    real_bgc = dc_metric.bin_group_candidates
+
+    llm_intervention.top_variable = spy
+    dc_metric.bin_group_candidates = lambda *a, **k: [stub_cell]
+    try:
+        asyncio.run(llm_intervention._generate_and_emit(
+            None, {}, "pid", {"beliefs": {}}, {},   # sio, sid_by_pid, pid, client_record, teens
+            weights={}, attention={}, bias_v=bias_v,
+            phase="realtime", trigger_signal="t", event="llm_intervention",
+            axes=None, force_variable=forced))
+    finally:
+        llm_intervention.top_variable = real_top
+        dc_metric.bin_group_candidates = real_bgc
+
+    # Both call sites fired (cell grid, then message) and BOTH resolved to `forced`.
+    assert len(calls) == 2, f"expected 2 top_variable calls, got {len(calls)}: {calls}"
+    assert calls == [forced, forced], f"cell grid / message desynced: {calls}"
+
+
 # --- get_current_axes: read the live axes off the latest hover log -----------
 def test_get_current_axes_reads_latest_hover():
     """Scans in reverse; the most recent mouseout_item/group wins, others ignored."""
