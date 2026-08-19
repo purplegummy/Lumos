@@ -351,6 +351,79 @@ def main():
     check("reset with no dwell_last_fired_vars is a no-op",
           recR3["dwell_last_checked_by_var"] == {"var_a": 7.0})
 
+    # ===================================================================== #
+    # Active-filter scope: a filtered variable joins x/y as an "active" variable
+    # (get_currently_active_variables unions axes + get_current_filters).
+    # ===================================================================== #
+    print("\nactive-filter scope (filtered vars join the axis vars):")
+
+    def filter_log(itype, attribute=None):
+        """A response_list entry (a wrapped message) for a filter interaction."""
+        data = {} if attribute is None else {"attribute": attribute}
+        return {"input_data": {"interactionType": itype, "data": data}}
+
+    # Map C: 3 vars, hot teens are the population MAX on each -> any single-var scope
+    # fires on the hot dwell.
+    wC = {"var_a": 1.0, "var_b": 1.0, "var_c": 1.0}
+    mapC = hotcold_map({"var_a": 1.0, "var_b": 1.0, "var_c": 1.0},
+                       {"var_a": -1.0, "var_b": -1.0, "var_c": -1.0}, wC)
+    noaxis_dwell = [mouseout(f"t{i}", 5000) for i in range(6)]   # 30s, NO axis names
+    mC = dc_adapter.compute_dwell_metrics(mapC, noaxis_dwell)
+
+    # --- a filtered-but-not-on-axis variable is scored and fires on its own ------
+    recF = {"bias_logs": noaxis_dwell, "dc_map_detailed": mapC,
+            "response_list": [filter_log("filter_added", "var_c")]}
+    fF, rF, trF = llm_trigger.evaluate_trigger(recF, mC)
+    print(f"    filter-only var_c (no axes) -> fired={fF} reason={rF!r}")
+    check("no axes but var_c filtered -> it is the active scope and FIRES",
+          fF is True and rF == "ok")
+    check("the filtered var got scored (pct not None)",
+          trF["dwell_bias_percentile"] is not None)
+    check("the filtered var got its own cooldown entry (30.0)",
+          recF["dwell_last_checked_by_var"]["var_c"] == 30.0)
+    check("fired check recorded the filtered var",
+          recF["dwell_last_fired_vars"] == ["var_c"])
+
+    # --- filter var has an INDEPENDENT clock from an axis var --------------------
+    # var_a on the x axis is cooling; var_c (filter-only) is fresh -> var_c is checked
+    # and var_a is left alone. Same independent-clock guarantee as two axis vars.
+    axis_a_dwell = [mouseout(f"t{i}", 5000, x="var_a") for i in range(6)]   # 30s
+    recFI = {"bias_logs": axis_a_dwell, "dc_map_detailed": mapC,
+             "response_list": [filter_log("filter_added", "var_c")],
+             "dwell_last_checked_by_var": {"var_a": 25.0}}   # var_a cooling (5 < 10)
+    mFI = dc_adapter.compute_dwell_metrics(mapC, axis_a_dwell)
+    fFI, rFI, _ = llm_trigger.evaluate_trigger(recFI, mFI)
+    check("cooling axis var_a does NOT block the filtered var_c -> fires on var_c",
+          fFI is True and rFI == "ok")
+    check("cooling axis var_a's clock is untouched (25.0)",
+          recFI["dwell_last_checked_by_var"]["var_a"] == 25.0)
+    check("filter var_c got its own independent clock (30.0)",
+          recFI["dwell_last_checked_by_var"]["var_c"] == 30.0)
+    check("fired check recorded ONLY the ready filter var (var_c)",
+          recFI["dwell_last_fired_vars"] == ["var_c"])
+
+    # --- non-belief filter var alongside a valid belief var -> graceful drop -----
+    # var_a is on the axis (a real belief var); "child_id" is filtered but is NOT a
+    # belief variable, so scoped_detailed_map drops it (partial miss) and scores var_a
+    # alone -> fires, NOT scope_failed.
+    recND = {"bias_logs": axis_a_dwell, "dc_map_detailed": mapC,
+             "response_list": [filter_log("filter_added", "child_id")]}
+    mND = dc_adapter.compute_dwell_metrics(mapC, axis_a_dwell)
+    fND, rND, _ = llm_trigger.evaluate_trigger(recND, mND)
+    print(f"    var_a axis + child_id filter (non-belief) -> fired={fND} reason={rND!r}")
+    check("non-belief filter var alongside a valid belief var -> scopes to the valid "
+          "one and FIRES (graceful drop, not scope_failed)",
+          fND is True and rND == "ok")
+
+    # --- filter-only on a non-belief var (TOTAL miss) -> scope_failed, no fire ----
+    recNO = {"bias_logs": noaxis_dwell, "dc_map_detailed": mapC,
+             "response_list": [filter_log("filter_added", "child_id")]}
+    mNO = dc_adapter.compute_dwell_metrics(mapC, noaxis_dwell)
+    fNO, rNO, tNO = llm_trigger.evaluate_trigger(recNO, mNO)
+    check("filter-only on a non-belief var (total miss) -> scope_failed, no fire",
+          fNO is False and rNO.startswith("scope_failed")
+          and tNO["dwell_bias_percentile"] is None)
+
     print("\n" + "=" * 72)
     print(f"{'ALL CHECKS PASSED' if failures == 0 else str(failures) + ' CHECK(S) FAILED'}")
     print("=" * 72)

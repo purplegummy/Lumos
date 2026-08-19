@@ -180,6 +180,61 @@ def get_current_axes(client_record):
     return {"x": None, "y": None}
 
 
+def get_current_filters(client_record):
+    """The attributes with a filter currently turned on -> set of variable names.
+
+    Filter events are NOT in bias_logs (they are not in COMPUTE_BIAS_FOR_TYPES), but
+    every interaction, filter events included, is appended to response_list, so the
+    active-filter set is reconstructed by replaying that list in order -- the same
+    add/remove replay dc_adapter.selected_ids uses for the selection. "Active" means
+    the filter is turned ON (from filter_added onward); it is NOT gated on a value
+    having been set, so filter_changed alone also counts.
+
+    response_list wraps each message under "input_data" (unlike bias_logs, which
+    stores the raw data), so the interactionType and attribute are read from there.
+
+    Replay rules:
+      filter_added        -> add the attribute
+      filter_removed      -> discard it
+      all_filters_removed -> clear the whole set
+      filter_changed      -> ensure the attribute is present (a value change implies
+                             the filter is on, even if no filter_added was seen first)
+
+    Empty or absent response_list -> empty set (matches how the dwell tests build
+    minimal records without this key).
+    """
+    active = set()
+    for entry in client_record.get("response_list", []):
+        message = entry.get("input_data", {})
+        itype = message.get("interactionType")
+        if itype == "all_filters_removed":
+            active.clear()
+            continue
+        attribute = message.get("data", {}).get("attribute")
+        if attribute is None:
+            continue
+        if itype in ("filter_added", "filter_changed"):
+            active.add(attribute)
+        elif itype == "filter_removed":
+            active.discard(attribute)
+    return active
+
+
+def get_currently_active_variables(client_record):
+    """The variables the participant is actively working with -> set of names.
+
+    The union of the x/y axis attributes (get_current_axes, Nones dropped) and the
+    attributes with an active filter (get_current_filters). This is the single source
+    the dwell trigger scopes and cools down on, so a variable counts as "active"
+    whether it is on an axis, filtered, or both. Both source functions are left
+    unmodified; this only composes them.
+    """
+    axes = get_current_axes(client_record)
+    active = {v for v in (axes.get("x"), axes.get("y")) if v is not None}
+    active |= get_current_filters(client_record)
+    return active
+
+
 def top_variable(dwell_bias_v, axes=None, force_variable=None):
     """The single variable that drives the intervention, or None.
 

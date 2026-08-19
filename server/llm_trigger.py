@@ -108,11 +108,13 @@ def evaluate_trigger(client_record, dwell_metrics):
         return False, (f"not_ready ({total_dwell_seconds:.1f}s/{MIN_TOTAL_DWELL_SECONDS}s, "
                        f"{n_dwelled}/{MIN_UNIQUE_HOVERS} teens)"), trace
 
-    # --- resolve the visible axes ONCE: shared by the recheck gate and the
-    # scoped percentile below (both need to know which variables are on screen).
-    axes = llm_intervention.get_current_axes(client_record)
-    visible_vars = list(dict.fromkeys(
-        v for v in (axes.get("x"), axes.get("y")) if v is not None))
+    # --- resolve the CURRENTLY ACTIVE variables ONCE: the x/y axis attributes PLUS
+    # any attribute with an active filter (Shiyao's request), shared by the recheck
+    # gate and the scoped percentile below. sorted() only for a deterministic order
+    # (the source is a set); order does not affect scoring or cooldown, which key on
+    # the variable-name strings.
+    visible_vars = sorted(
+        llm_intervention.get_currently_active_variables(client_record))
     if not visible_vars:
         return False, "no_visible_axes", trace
 

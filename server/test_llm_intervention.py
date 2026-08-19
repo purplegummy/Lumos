@@ -14,6 +14,8 @@ from llm_intervention import (
     _majority_diagnosis,
     top_variable,
     get_current_axes,
+    get_current_filters,
+    get_currently_active_variables,
     widened_span,
     assemble_llm_input,
 )
@@ -333,6 +335,112 @@ def test_get_current_axes_tolerates_missing_axis_field():
         {"interactionType": "mouseout_item", "data": {"x": {"name": "only_x"}}},
     ]}
     assert get_current_axes(record) == {"x": "only_x", "y": None}
+
+
+# --- get_current_filters: replay the active-filter set off response_list -------
+def _flog(itype, attribute=None):
+    """One response_list entry (a wrapped message) for a filter interaction."""
+    data = {} if attribute is None else {"attribute": attribute}
+    return {"input_data": {"interactionType": itype, "data": data}}
+
+
+def test_get_current_filters_add_remove_change_replay():
+    """filter_added adds, filter_removed discards, filter_changed ensures-present."""
+    record = {"response_list": [
+        _flog("filter_added", "screen_time_weekday"),
+        _flog("filter_added", "hours_sleep_weeknight"),
+        _flog("filter_changed", "days_physical_activity_week"),  # no prior add
+        _flog("filter_removed", "hours_sleep_weeknight"),
+    ]}
+    assert get_current_filters(record) == {
+        "screen_time_weekday", "days_physical_activity_week"}
+
+
+def test_get_current_filters_remove_all_clears():
+    """all_filters_removed clears the whole set; later adds start fresh."""
+    record = {"response_list": [
+        _flog("filter_added", "screen_time_weekday"),
+        _flog("filter_added", "hours_sleep_weeknight"),
+        _flog("all_filters_removed"),
+        _flog("filter_added", "child_age_years"),
+    ]}
+    assert get_current_filters(record) == {"child_age_years"}
+
+
+def test_get_current_filters_order_and_readd():
+    """Order matters: a removed attribute re-added is active again; a change after
+    remove re-activates it too."""
+    record = {"response_list": [
+        _flog("filter_added", "a"),
+        _flog("filter_removed", "a"),
+        _flog("filter_added", "a"),        # re-added -> active
+        _flog("filter_added", "b"),
+        _flog("filter_removed", "b"),
+        _flog("filter_changed", "b"),      # change after remove -> active again
+    ]}
+    assert get_current_filters(record) == {"a", "b"}
+
+
+def test_get_current_filters_empty_or_absent():
+    """Empty or absent response_list -> empty set (no crash)."""
+    assert get_current_filters({"response_list": []}) == set()
+    assert get_current_filters({}) == set()
+
+
+def test_get_current_filters_ignores_non_filter_and_missing_attr():
+    """Non-filter entries and filter entries missing an attribute are skipped."""
+    record = {"response_list": [
+        _flog("mouseout_item"),                       # not a filter event
+        {"input_data": {"interactionType": "filter_added"}},  # data missing entirely
+        _flog("filter_added", "screen_time_weekday"),
+    ]}
+    assert get_current_filters(record) == {"screen_time_weekday"}
+
+
+# --- get_currently_active_variables: union of axes + filters -----------------
+def test_active_variables_axes_only_matches_old_behavior():
+    """No filters -> exactly the non-None axis attributes (old visible_vars source)."""
+    record = {"bias_logs": [
+        {"interactionType": "mouseout_item",
+         "data": {"x": {"name": "screen_time_weekday"},
+                  "y": {"name": "hours_sleep_weeknight"}}},
+    ]}
+    assert get_currently_active_variables(record) == {
+        "screen_time_weekday", "hours_sleep_weeknight"}
+    # one axis unassigned -> just the one, still no filters
+    record_one = {"bias_logs": [
+        {"interactionType": "mouseout_item", "data": {"x": {"name": "only_x"}}}]}
+    assert get_currently_active_variables(record_one) == {"only_x"}
+
+
+def test_active_variables_filters_only():
+    """No axes (no hover) -> just the active-filter set."""
+    record = {"response_list": [
+        _flog("filter_added", "child_age_years"),
+        _flog("filter_added", "days_physical_activity_week"),
+    ]}
+    assert get_currently_active_variables(record) == {
+        "child_age_years", "days_physical_activity_week"}
+
+
+def test_active_variables_union_with_overlap_deduped():
+    """Axis + filter union; a variable on both an axis AND filtered appears once."""
+    record = {
+        "bias_logs": [
+            {"interactionType": "mouseout_item",
+             "data": {"x": {"name": "screen_time_weekday"},   # also filtered below
+                      "y": {"name": "hours_sleep_weeknight"}}}],
+        "response_list": [
+            _flog("filter_added", "screen_time_weekday"),      # overlaps the x axis
+            _flog("filter_added", "child_age_years")],
+    }
+    assert get_currently_active_variables(record) == {
+        "screen_time_weekday", "hours_sleep_weeknight", "child_age_years"}
+
+
+def test_active_variables_empty_when_nothing_active():
+    """No axes and no filters -> empty set."""
+    assert get_currently_active_variables({}) == set()
 
 
 def _session(bias_v, cells, values=()):
