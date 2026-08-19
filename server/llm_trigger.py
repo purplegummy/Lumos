@@ -18,6 +18,14 @@ when the trigger policy does:
    percentile test scored on the final selection
    (dc_metric.selection_bias_percentile) rather than on dwell.
 
+3. evaluate_selection_progressive_trigger -- a NON-blocking, per-selection sibling of
+   the realtime dwell trigger (1), scoring the running selection per variable and
+   firing on the single most extreme one (Shiyao's max-across-variables rule). Built
+   and unit-tested in isolation; NOT wired to any socket handler yet -- Sung's repeat
+   cooldown is still pending, and without it firing on every selection past the 5th
+   is unacceptable. Deliberately separate from evaluate_summary_trigger (2), which
+   stays the submit-time summary path unchanged.
+
 This module reads from dc_metric (scoring) plus dc_adapter (the scoped-map
 reshape) and llm_intervention (get_current_axes); it modifies none of them.
 """
@@ -250,3 +258,78 @@ def evaluate_summary_trigger(client_record, selection_metrics, selected_ids):
         return False, f"below_percentile (pct={pct}, observed={observed:+.4f})"
 
     return True, "ok"
+
+
+# --------------------------------------------------------------------------- #
+# Progressive selection gate (BUILD-ONLY -- not wired live).
+#
+# A non-blocking, per-selection sibling of the realtime dwell trigger, scoring the
+# running selection instead of dwell and PER VARIABLE instead of pooled, firing on
+# the single most extreme variable (Shiyao's rule). It is intentionally NOT called
+# from on_selected_subjects or any other socket handler yet: Sung's repeat cooldown
+# is still pending, and without it this would fire on every selection past the 5th.
+# The emission wrapper it hands off to (llm_intervention.generate_selection_and_emit)
+# also exists but is likewise unwired.
+#
+# Deliberately separate from evaluate_summary_trigger above, which stays the
+# submit-time summary path exactly as it is.
+# --------------------------------------------------------------------------- #
+def evaluate_selection_progressive_trigger(client_record, selected_ids):
+    """Per-variable selection-bias fire decision for the running selection.
+
+    Sibling of evaluate_trigger (the realtime dwell gate) in shape -- a readiness
+    gate first, then the scoped scoring -- but scored on the SELECTION and across
+    ALL belief variables, since selection has no axes to scope to. It does NOT
+    modify or replace evaluate_summary_trigger; it is new, isolated logic.
+
+    Returns a dict. Below readiness:
+      {"ready": False, "reason": "not_ready (...)", "n_selected", "percentile_by_var": None}
+    At/above readiness:
+      {"ready":             True,
+       "reason":            "ok",
+       "fired":             bool,
+       "target_var":        variable | None,   # the argmax variable, only on a fire
+       "target_percentile": float | None,      # its percentile, only on a fire
+       "n_selected":        int,                # unique selected ids
+       "percentile_by_var": {variable: percentile}}   # full dict, for logging
+
+    Reduction (Shiyao's rule): fire on the single MOST extreme variable. Take the
+    max over the per-variable percentiles; if it is >= SELECTION_PERCENTILE_THRESHOLD
+    the trigger fires with target_var = that argmax variable and target_percentile =
+    its value. If nothing clears (or nothing scored), fired is False and target_var /
+    target_percentile are None -- percentile_by_var is still returned in full so a
+    log can show how close it got. Variables whose percentile is None (nothing
+    selected present in the map -- uniform across variables) are excluded from the max.
+
+    Readiness: n_selected >= MIN_SELECTIONS, the SAME constant and threshold the
+    submit-time gate uses, which is what makes this "start at the 5th selection."
+
+    client_record: the CLIENTS[pid] dict (reads dc_map_detailed).
+    selected_ids:  the participant's currently-selected teen ids.
+    """
+    n_selected = len(set(selected_ids))
+    if n_selected < MIN_SELECTIONS:
+        return {"ready": False,
+                "reason": f"not_ready ({n_selected} < {MIN_SELECTIONS} selections)",
+                "n_selected": n_selected,
+                "percentile_by_var": None}
+
+    percentile_by_var = dc_adapter.selection_percentile_by_var(
+        client_record["dc_map_detailed"], selected_ids)
+
+    # Reduce across variables: fire on the single most extreme one. Only variables
+    # with a computed percentile are eligible for the max (None = nothing selected
+    # present in the map for that scope, uniform across variables).
+    scored = {v: p for v, p in percentile_by_var.items() if p is not None}
+    argmax_var = max(scored, key=scored.get) if scored else None
+    max_pct = scored[argmax_var] if argmax_var is not None else None
+    fired = max_pct is not None and max_pct >= SELECTION_PERCENTILE_THRESHOLD
+
+    return {"ready": True,
+            "reason": "ok",
+            "fired": fired,
+            # Name a target only on a fire; percentile_by_var carries the rest.
+            "target_var": argmax_var if fired else None,
+            "target_percentile": max_pct if fired else None,
+            "n_selected": n_selected,
+            "percentile_by_var": percentile_by_var}

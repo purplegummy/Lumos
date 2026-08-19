@@ -180,15 +180,25 @@ def get_current_axes(client_record):
     return {"x": None, "y": None}
 
 
-def top_variable(dwell_bias_v, axes=None):
+def top_variable(dwell_bias_v, axes=None, force_variable=None):
     """The single variable that drives the intervention, or None.
 
-    Default (axes is None, or neither axis qualifies): the most positively-biased
-    supported variable. Positive only -- a negative score is attention to belief-
-    INCONSISTENT teens, the opposite of the bias we flag. Both halves of the
-    intervention are about this one variable -- the summary names the range they
-    over-attended, the recommendation the range they skipped -- so the two can never
-    disagree about the subject.
+    force_variable (HARD override, highest precedence): when given, it is returned
+    verbatim, bypassing the supported/positive filter, the ranking, AND the axis
+    preference below. Blind by design -- no validation -- because the only caller
+    (generate_selection_and_emit) passes a target_var that is guaranteed supported
+    and positive by construction. This is how the selection path pins the message to
+    the variable its per-variable percentile fired on, instead of the soft, top-3
+    axis steer. axes and force_variable are mutually exclusive per caller: the
+    selection path passes force_variable (axes=None); every other path leaves
+    force_variable None and uses axes exactly as before.
+
+    Default (force_variable None; axes is None, or neither axis qualifies): the most
+    positively-biased supported variable. Positive only -- a negative score is
+    attention to belief-INCONSISTENT teens, the opposite of the bias we flag. Both
+    halves of the intervention are about this one variable -- the summary names the
+    range they over-attended, the recommendation the range they skipped -- so the two
+    can never disagree about the subject.
 
     Axis preference (axes = {"x": name|None, "y": name|None}, realtime path only):
     if an attribute the participant currently has on an axis is among the top 3 of
@@ -196,6 +206,8 @@ def top_variable(dwell_bias_v, axes=None):
     the intervention targets what they are actively looking at. Ties between two
     qualifying axis attributes go to the higher weighted score.
     """
+    if force_variable is not None:
+        return force_variable
     supported = [kv for kv in dwell_bias_v.items()
                  if kv[0] in SUPPORTED_VARIABLES and kv[1] > 0]
     if not supported:
@@ -370,7 +382,8 @@ def build_candidate_themes(session, variable):
 def assemble_llm_input(session):
     """The LLM input, or None when there is nothing to recommend: no
     positively-biased variable to name, or no candidate cell to point them at."""
-    variable = top_variable(session["dwell_bias_v"], session.get("axes"))
+    variable = top_variable(session["dwell_bias_v"], session.get("axes"),
+                            session.get("force_variable"))
     if variable is None:
         return None
     candidate_themes = build_candidate_themes(session, variable)
@@ -738,9 +751,46 @@ async def generate_summary_and_emit(sio, sid_by_pid, pid, client_record,
         await emit_fallback_summary(sio, live_room(sio, sid_by_pid, pid), pid)
 
 
+async def generate_selection_and_emit(sio, sid_by_pid, pid, client_record,
+                                      selection, teens, selected_ids, target_var):
+    """Background task: a NON-blocking, per-selection nudge on the running selection.
+
+    The selection-weighted sibling of the REALTIME dwell nudge (generate_and_emit),
+    not the submit-blocking summary. It reuses the shared core exactly like the other
+    two wrappers, differing only in the arguments below: teens are weighted equally by
+    having been selected (as the summary path does), the per-variable scores come from
+    the selection, and -- unlike the submit summary -- the phase and event are the
+    REALTIME ones ("realtime" / "llm_intervention"), so this delivers a live nudge and
+    never blocks a submit. There is no fallback emit: like the realtime dwell path (and
+    unlike the summary), a failed or undelivered generation stays silent.
+
+    target_var is the variable the progressive trigger fired on (argmax of the
+    per-variable selection percentiles). It is passed as force_variable, a HARD
+    override that pins the whole intervention -- cell grid and message text alike --
+    to that variable, unlike the realtime dwell path's soft top-3 axis preference.
+    axes is None here: selection has no real axes, and force_variable fully replaces
+    that lever. target_var is expected non-None (the caller only runs this on a fire).
+
+    Not wired to any handler yet (Sung's repeat cooldown is pending); called directly
+    only from its unit test for now.
+    """
+    return await _generate_and_emit(
+        sio, sid_by_pid, pid, client_record, teens,
+        weights={teen_id: 1.0 for teen_id in selected_ids},
+        attention={"selected_ids": selected_ids},
+        bias_v=selection.get("selection_bias_v", {}),
+        phase="realtime",
+        trigger_signal=("selection-level bias on the participant's running selection "
+                        "exceeded participant-specific threshold for one variable"),
+        event="llm_intervention",
+        # Hard-pin the message to the fired variable (not the soft axis steer).
+        axes=None,
+        force_variable=target_var)
+
+
 async def _generate_and_emit(sio, sid_by_pid, pid, client_record, teens,
                              weights, attention, bias_v, phase, trigger_signal, event,
-                             axes=None):
+                             axes=None, force_variable=None):
     """Shared assemble -> generate -> emit -> persist core. Returns whether it DELIVERED.
 
     False covers "generation failed", "timed out", and "generated but the
@@ -767,7 +817,7 @@ async def _generate_and_emit(sio, sid_by_pid, pid, client_record, teens,
 
         # One variable drives the whole intervention, so it is resolved once here
         # and its cell grid is what assembly reads.
-        variable = top_variable(bias_v, axes)
+        variable = top_variable(bias_v, axes, force_variable)
         bin_cells, bin_values = [], []
         if variable is not None:
             bin_cells = dc_metric.bin_group_candidates(
@@ -785,6 +835,11 @@ async def _generate_and_emit(sio, sid_by_pid, pid, client_record, teens,
             # the summary path). Threaded through so assemble_llm_input's own
             # top_variable call resolves the SAME variable as the cell grid above.
             "axes": axes,
+            # Hard variable override (selection path). MUST be threaded here too, not
+            # just into the :807 call above: assemble_llm_input resolves the message
+            # variable from session, so omitting it would let the cell grid (forced)
+            # and the message text (argmax) silently disagree.
+            "force_variable": force_variable,
             "bin_cells": bin_cells,
             "bin_values": bin_values,
             "n_teens": len(teens),

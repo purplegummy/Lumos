@@ -401,3 +401,44 @@ def scoped_detailed_map(dc_map_detailed, visible_vars):
                        "consistency": consistency,
                        "weights": weights}
     return scoped
+
+
+def selection_percentile_by_var(dc_map_detailed, selected_ids, n_trials=1000, rng=None):
+    """SelectionBias percentile for EVERY belief variable, one variable at a time.
+
+    Selection has no axes to scope to (unlike the dwell trigger), so instead of one
+    pooled score this reports, per variable, how extreme the selection looks when DC
+    is re-pooled onto that ONE variable. For each variable v it reuses the exact
+    pooled pipeline: scoped_detailed_map(detailed, [v]) re-pools DC onto v, the
+    scalar "dc" is extracted per teen, and dc_metric.selection_bias_percentile scores
+    it the same way compute_selection_percentile does today. Nothing in dc_metric is
+    modified; this is pure reshape + reuse.
+
+    Args:
+        dc_map_detailed: cached dc_map_detailed, {teen: {"dc", "consistency",
+            "weights"}}. Not mutated (scoped_detailed_map builds fresh entries).
+        selected_ids: the participant's selected teen ids.
+        n_trials: null draws per variable (passed straight through, never reduced).
+        rng: numpy Generator for reproducible tests, or None for the np.random
+            global (the live default), matching selection_bias_percentile.
+
+    Returns:
+        {variable: percentile} over ALL belief variables in the map. Each percentile
+        is in [0, 1], or None for the k == 0 case selection_bias_percentile already
+        guards (nothing selected is present in the map -- identical across variables,
+        since scoping changes each teen's DC but not which teens exist). {} for an
+        empty map.
+
+    The variable list is read the same way dwell_bias_v reads it (the consistency
+    keys of any entry), so the two stay in lockstep on what "all variables" means.
+    """
+    if not dc_map_detailed:
+        return {}
+    variables = list(next(iter(dc_map_detailed.values()))["consistency"].keys())
+    out = {}
+    for v in variables:
+        scoped = scoped_detailed_map(dc_map_detailed, [v])
+        scalar_dc = {tid: entry["dc"] for tid, entry in scoped.items()}
+        out[v] = dc_metric.selection_bias_percentile(
+            scalar_dc, selected_ids, n_trials, rng)
+    return out
