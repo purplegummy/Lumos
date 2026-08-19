@@ -124,7 +124,7 @@ export class ElicitationModalComponent implements OnInit {
     private store: PriorBeliefStore,
     public binningService: BinningService,
     private chatService: ChatService,
-    private global: SessionPage
+    public global: SessionPage
   ) {}
 
   ngOnInit() {
@@ -312,6 +312,18 @@ export class ElicitationModalComponent implements OnInit {
       this._loadDraft();
     } else {
       this.done = true;
+      // Real (non-tutorial) elicitation fires the redirect right on this last
+      // "Finish" click rather than waiting for a separate "Continue" click --
+      // the parent's (closed) handler (onPriorModalClosed) is what actually
+      // submits/redirects (/elicitation submission, or starting the main
+      // task), so emitting here makes that immediate.
+      //
+      // Tutorial mode instead shows the "All done!" screen with its own
+      // explicit "Continue" button (see modal.html) -- a thank-you beat
+      // before handing off out of the tutorial, rather than an instant jump.
+      if (!this.global.isTutorial) {
+        this.closed.emit();
+      }
     }
   }
 

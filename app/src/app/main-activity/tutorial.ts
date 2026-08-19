@@ -10,6 +10,7 @@
 // disable the "Next" button and only advance once the participant actually
 // performs the action, rather than letting them click through blind.
 import { driver } from "driver.js";
+import { suppressUnloadPrompt } from "./unload-guard";
 
 const TUTORIAL_QUERY_PARAM = "tutorial";
 
@@ -18,14 +19,27 @@ export function isTutorialRequested(params: { [key: string]: string }): boolean 
 }
 
 /**
- * Sends the participant to the task-intro briefing page with the tutorial
- * flag stripped and appType/level forced to the real CONTROL task, so
- * "Start the Task" there lands in the actual live study with a fresh
- * (non-tutorial) component instance and a real socket connection. This is
- * the only exit path out of the tutorial — triggered from the real "Submit
- * Task" confirm flow once the dummy task is done.
+ * Sends the participant to a landing/briefing page with the tutorial flag
+ * stripped and appType/level forced to the real CONTROL task, so that page's
+ * "Start" button lands in the actual live study with a fresh (non-tutorial)
+ * component instance and a real socket connection. This is the exit path out
+ * of every tutorial: the main-page tour (dummy-task submit) and the
+ * elicitation-only tutorial (dummy modal close) both call it, just with a
+ * different `targetPath`.
+ *
+ * `targetPath` picks which landing page: "/task-intro" for the combined flow
+ * (-> real "/" on start), "/main/task-intro" for the split main-task flow
+ * (-> real "/main" on start), "/elicitation/task-intro" for the split
+ * elicitation flow (-> real "/elicitation" on start). See
+ * app-routing.module.ts for how each landing route's `dest` is wired up.
  */
-export function exitTutorial(): void {
+export function exitTutorial(targetPath: string = "/task-intro"): void {
+  // This is a deliberate hand-off, not an accidental refresh/close -- without
+  // this, the browser's native "leave site?" prompt fires on the
+  // window.location.href assignment below, and a participant who clicks
+  // "stay" is left stuck (the tutorial/modal state above this call has
+  // already moved on assuming the navigation goes through).
+  suppressUnloadPrompt();
   const url = new URL(window.location.href);
   url.searchParams.delete(TUTORIAL_QUERY_PARAM);
   // Only fill in "type" if it's missing entirely -- don't clobber whatever
@@ -39,7 +53,7 @@ export function exitTutorial(): void {
   if (!url.searchParams.has("level")) {
     url.searchParams.set("level", "live");
   }
-  url.pathname = "/task-intro";
+  url.pathname = targetPath;
   window.location.href = url.toString();
 }
 

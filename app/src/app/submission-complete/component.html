@@ -1,7 +1,9 @@
 <div class="submission-complete-page">
   <div class="submission-complete-card">
-    <h2>Task submitted</h2>
-    <p>Thank you for completing the task. Copy the verification code below and submit it to confirm your participation.</p>
+    <h2 *ngIf="global.sessionMode === 'elicitation'; else taskSubmittedTitle">Elicitation submitted</h2>
+    <ng-template #taskSubmittedTitle><h2>Task submitted</h2></ng-template>
+    <p *ngIf="global.sessionMode === 'elicitation'; else taskSubmittedBody">Thank you for completing this part of the study. Copy the verification code below and submit it to confirm your participation in this part.</p>
+    <ng-template #taskSubmittedBody><p>Thank you for completing the task. Copy the verification code below and submit it to confirm your participation.</p></ng-template>
     <div class="submission-complete-code">{{ verificationCode }}</div>
   </div>
 </div>

@@ -118,25 +118,69 @@ def save_selected_subjects(pid: str, subjects: list):
 
 
 def save_task_submission(pid: str, verification_code: str, subjects: list, submitted_at=None,
-                          elicitation_duration_ms=None, main_task_duration_ms=None,
-                          insufficient_duration=False):
-    """Record that the participant submitted the task, with their verification code."""
+                          elicitation_started_at=None, elicitation_ended_at=None,
+                          elicitation_duration_ms=None, elicitation_engagement=None,
+                          main_task_started_at=None, main_task_ended_at=None,
+                          main_task_duration_ms=None, main_engagement=None):
+    """Record that the participant submitted the main task, with their verification code.
+
+    main_engagement / elicitation_engagement are "low" (spent under the
+    MIN_MAIN_TASK_MS/MIN_ELICITATION_MS threshold) or "satisfactory" (met it) --
+    replaces the old opaque insufficient_duration boolean.
+    """
+    db = _get_db()
+    if db is None:
+        return
+    try:
+        fields = {
+            "task_submitted": True,
+            "verification_code": verification_code,
+            "submitted_subjects": _sanitize(subjects),
+            "submitted_at": submitted_at,
+            "main_task_started_at": main_task_started_at,
+            "main_task_ended_at": main_task_ended_at,
+            "main_task_duration_ms": main_task_duration_ms,
+            "main_engagement": main_engagement,
+        }
+        # Only set when this submission actually measured it (combined-flow
+        # sessions, where elicitation happened right before the main task in
+        # the same visit) -- a /main-only visit has no elicitation phase and
+        # would otherwise overwrite the values save_elicitation_submission
+        # wrote from an earlier, separate /elicitation visit.
+        if elicitation_duration_ms is not None:
+            fields["elicitation_started_at"] = elicitation_started_at
+            fields["elicitation_ended_at"] = elicitation_ended_at
+            fields["elicitation_duration_ms"] = elicitation_duration_ms
+            fields["elicitation_engagement"] = elicitation_engagement
+        _participant_ref(db, pid).set(fields, merge=True)
+        print(f"[firebase_logger] Saved task submission for {pid}: {verification_code}")
+    except Exception as e:
+        print(f"[firebase_logger] save_task_submission error: {e}")
+
+
+def save_elicitation_submission(pid: str, verification_code: str, submitted_at=None,
+                                 elicitation_started_at=None, elicitation_ended_at=None,
+                                 elicitation_duration_ms=None, elicitation_engagement=None):
+    """Record that the participant finished the elicitation-only phase, with its own
+    verification code -- kept separate from save_task_submission's (main-task) fields
+    so a participant who does /elicitation and /main as two visits gets both recorded
+    on the same participant document."""
     db = _get_db()
     if db is None:
         return
     try:
         _participant_ref(db, pid).set({
-            "task_submitted": True,
-            "verification_code": verification_code,
-            "submitted_subjects": _sanitize(subjects),
-            "submitted_at": submitted_at,
+            "elicitation_submitted": True,
+            "elicitation_verification_code": verification_code,
+            "elicitation_submitted_at": submitted_at,
+            "elicitation_started_at": elicitation_started_at,
+            "elicitation_ended_at": elicitation_ended_at,
             "elicitation_duration_ms": elicitation_duration_ms,
-            "main_task_duration_ms": main_task_duration_ms,
-            "insufficient_duration": insufficient_duration,
+            "elicitation_engagement": elicitation_engagement,
         }, merge=True)
-        print(f"[firebase_logger] Saved task submission for {pid}: {verification_code}")
+        print(f"[firebase_logger] Saved elicitation submission for {pid}: {verification_code}")
     except Exception as e:
-        print(f"[firebase_logger] save_task_submission error: {e}")
+        print(f"[firebase_logger] save_elicitation_submission error: {e}")
 
 
 def save_refresh_event(pid: str, timestamp):
@@ -167,3 +211,30 @@ def save_priors(pid: str, priors: dict):
         print(f"[firebase_logger] Saved {len(priors)} prior(s) for {pid}.")
     except Exception as e:
         print(f"[firebase_logger] save_priors error: {e}")
+
+
+def load_priors(pid: str) -> dict:
+    """Read this participant's previously-committed prior beliefs back out of
+    Firestore, keyed the same way as CLIENTS[pid]["priors"] in server.py
+    ("{attribute}::{condition}" -> belief dict). Used to restore that state
+    for a session that starts in a different visit/server process than the
+    one where elicitation actually happened (the /elicitation + /main split
+    flow) -- without this, a /main-only session has no priors and dc_map is
+    never computed."""
+    db = _get_db()
+    if db is None:
+        return {}
+    try:
+        priors = {}
+        for doc in _participant_ref(db, pid).collection("priors").stream():
+            belief = doc.to_dict()
+            attribute = belief.get("attribute")
+            condition = belief.get("condition", "default")
+            if attribute:
+                priors[f"{attribute}::{condition}"] = belief
+        if priors:
+            print(f"[firebase_logger] Loaded {len(priors)} prior(s) for {pid} from Firestore.")
+        return priors
+    except Exception as e:
+        print(f"[firebase_logger] load_priors error: {e}")
+        return {}

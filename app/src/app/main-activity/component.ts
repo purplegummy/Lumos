@@ -19,13 +19,9 @@ import { LineChart } from "../visualizations/main/line-chart-component";
 import { AttributeDistributionPlotConfig } from "../visualizations/awareness/component";
 import { PriorBeliefStore } from "../store/prior-belief.store";
 import { isTutorialRequested, startTutorial, exitTutorial, startElicitationIntro } from "./tutorial";
+import { installUnloadGuard } from "./unload-guard";
 import { cleanAttr, ORDINAL_CATEGORY_ORDER } from "../models/attribute-labels";
-window.addEventListener("beforeunload", function (e) {
-  // Cancel the event
-  e.preventDefault(); // If you prevent default behavior in Mozilla Firefox prompt will always be shown
-  // Chrome requires returnValue to be set
-  e.returnValue = "";
-});
+installUnloadGuard();
 
 // This is loaded as an external script not using npm, hence this step.
 declare var vegaEmbed: any;
@@ -67,6 +63,10 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   showPriorModal = false;
   private elicitationStartedAt: number | null = null;
   private elicitationEndedAt: number | null = null;
+  // Only set on sessionMode "main" (elicitation never runs in this page there,
+  // so elicitationEndedAt -- what mainTaskDurationMs is normally measured
+  // from -- stays null); marks when the main task actually became usable.
+  private mainTaskStartedAt: number | null = null;
   private _llmIntervention: any = null;
   llmSummary: any = null;
   llmSummaryLoading = false;
@@ -211,11 +211,25 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   // Phase 1 (prior belief elicitation) must fully finish before phase 2 (the
   // interactive page tour) starts — starting it earlier means it renders
   // underneath the still-open elicitation modal.
+  //
+  // On the split /elicitation route there is no phase 2 in this page at all
+  // (the main task lives on its own /main visit), so closing the modal there
+  // is the end of the page: submit the elicitation-only verification code
+  // (real mode) or hand off to the elicitation landing page (tutorial mode)
+  // instead of starting the main-page tour.
   onPriorModalClosed(): void {
     this.showPriorModal = false;
     this.elicitationEndedAt = Date.now();
     if (this.global.isTutorial) {
-      startTutorial(this.appConfig[this.global.appMode], this.llmRealtimeEnabled);
+      if (this.global.sessionMode === "elicitation") {
+        exitTutorial("/elicitation/task-intro");
+      } else {
+        startTutorial(this.appConfig[this.global.appMode], this.llmRealtimeEnabled);
+      }
+      return;
+    }
+    if (this.global.sessionMode === "elicitation") {
+      this.submitElicitation();
     }
   }
 
@@ -229,6 +243,10 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     private priorStore: PriorBeliefStore
 
   ) {
+    // Static per-route flag (see app-routing.module.ts) picking which of the
+    // three visitable flows this component instance is running: the legacy
+    // combined "/" flow, or one half of the split "/elicitation" / "/main" flow.
+    this.global.sessionMode = (this.route.snapshot.data && this.route.snapshot.data["mode"]) || "combined";
     this.objectKeys = Object.keys; // to help iterate over objects with *ngFor
     this.objectValues = Object.values; // to help iterate over objects with *ngFor
     this.math = Math; // to help iterate over objects with *ngFor
@@ -327,8 +345,22 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   showSubmitConfirm = false;
   showInstructionsModal = false;
 
+  // Split per sessionMode so a participant's combined-flow, elicitation-only,
+  // and main-only submissions each get their own "have they already
+  // submitted this?" flag instead of clobbering one another.
   private getSubmissionStorageKey(): string {
-    return `lumos_submitted_${this.global.participantId}`;
+    const prefix =
+      this.global.sessionMode === "elicitation" ? "lumos_elicitation_submitted"
+      : this.global.sessionMode === "main" ? "lumos_main_submitted"
+      : "lumos_submitted";
+    return `${prefix}_${this.global.participantId}`;
+  }
+
+  /** Route to land on once this session's submission is recorded (or found already recorded). */
+  private submittedPath(): string {
+    if (this.global.sessionMode === "elicitation") return "/elicitation/submitted";
+    if (this.global.sessionMode === "main") return "/main/submitted";
+    return "/submitted";
   }
 
   confirmSubmit() {
@@ -441,27 +473,33 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
     // Tutorial "submit" must never write the real submission flag (it's keyed
     // by the same participantId as the live task) or navigate to /submitted.
     // Instead, finishing the dummy task is how the tutorial hands off to the
-    // real CONTROL task.
+    // real task -- combined flow at "/", split flow at "/main".
     if (this.global.isTutorial) {
-      exitTutorial();
+      exitTutorial(this.global.sessionMode === "main" ? "/main/task-intro" : "/task-intro");
       return;
     }
     const ids = Object.keys(this.appConfig[this.global.appMode]['selectedObjects']);
-    const verificationCode = this.utilsService.generateVerificationCode(this.global['participantId']);
 
-    const now = Date.now();
-    const elicitationDurationMs = this.elicitationStartedAt != null && this.elicitationEndedAt != null
-      ? this.elicitationEndedAt - this.elicitationStartedAt
+    const mainTaskEndedAt = Date.now();
+    // sessionMode "main" never runs elicitation in this page (see initLumos),
+    // so the elicitation timestamps/duration/engagement are left null there --
+    // that participant's elicitation phase was already recorded by their
+    // separate /elicitation submission -- and the main task is timed from
+    // mainTaskStartedAt instead of elicitationEndedAt.
+    const elicitationStartedAt = this.elicitationStartedAt;
+    const elicitationEndedAt = this.elicitationEndedAt;
+    const elicitationDurationMs = elicitationStartedAt != null && elicitationEndedAt != null
+      ? elicitationEndedAt - elicitationStartedAt
       : null;
-    const mainTaskDurationMs = this.elicitationEndedAt != null
-      ? now - this.elicitationEndedAt
+    const mainTaskStartedAt = this.global.sessionMode === "main" ? this.mainTaskStartedAt : this.elicitationEndedAt;
+    const mainTaskDurationMs = mainTaskStartedAt != null ? mainTaskEndedAt - mainTaskStartedAt : null;
+    const elicitationEngagement = elicitationDurationMs != null
+      ? (elicitationDurationMs < this.utilsService.MIN_ELICITATION_MS ? "low" : "satisfactory")
       : null;
-    const insufficientDuration =
-      (elicitationDurationMs != null && elicitationDurationMs < this.utilsService.MIN_ELICITATION_MS) ||
-      (mainTaskDurationMs != null && mainTaskDurationMs < this.utilsService.MIN_MAIN_TASK_MS);
-    if (insufficientDuration) {
-      localStorage.setItem(this.utilsService.getInsufficientDurationStorageKey(this.global['participantId']), 'true');
-    }
+    const mainEngagement = mainTaskDurationMs != null
+      ? (mainTaskDurationMs < this.utilsService.MIN_MAIN_TASK_MS ? "low" : "satisfactory")
+      : null;
+    const verificationCode = this.utilsService.generateVerificationCode(this.global['participantId']);
 
     localStorage.setItem(this.getSubmissionStorageKey(), 'true');
     this.chatService.sendTaskSubmission({
@@ -472,11 +510,49 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
       appLevel: this.global.appLevel,
       selected_subjects: ids,
       verificationCode: verificationCode,
+      elicitationStartedAt: elicitationStartedAt,
+      elicitationEndedAt: elicitationEndedAt,
       elicitationDurationMs: elicitationDurationMs,
+      elicitationEngagement: elicitationEngagement,
+      mainTaskStartedAt: mainTaskStartedAt,
+      mainTaskEndedAt: mainTaskEndedAt,
       mainTaskDurationMs: mainTaskDurationMs,
-      insufficientDuration: insufficientDuration,
+      mainEngagement: mainEngagement,
     });
-    this.router.navigate(['/submitted'], { queryParamsHandling: 'preserve' });
+    this.router.navigate([this.submittedPath()], { queryParamsHandling: 'preserve' });
+  }
+
+  /**
+   * Elicitation-only counterpart of submitTask(), for the /elicitation route:
+   * no subjects/main-task fields involved, its own "LE-" verification code,
+   * and its own Firestore write (save_elicitation_submission) so it never
+   * clobbers fields a later, separate /main visit will write.
+   */
+  private submitElicitation(): void {
+    const elicitationStartedAt = this.elicitationStartedAt;
+    const elicitationEndedAt = this.elicitationEndedAt;
+    const elicitationDurationMs = elicitationStartedAt != null && elicitationEndedAt != null
+      ? elicitationEndedAt - elicitationStartedAt
+      : null;
+    const elicitationEngagement = elicitationDurationMs != null
+      ? (elicitationDurationMs < this.utilsService.MIN_ELICITATION_MS ? "low" : "satisfactory")
+      : null;
+    const verificationCode = this.utilsService.generateVerificationCode(this.global['participantId'], false, true);
+
+    localStorage.setItem(this.getSubmissionStorageKey(), 'true');
+    this.chatService.sendElicitationSubmission({
+      participantId: this.global['participantId'],
+      participantIdSource: this.global['participantIdSource'],
+      appMode: this.global.appMode,
+      appType: this.global.appType,
+      appLevel: this.global.appLevel,
+      verificationCode: verificationCode,
+      elicitationStartedAt: elicitationStartedAt,
+      elicitationEndedAt: elicitationEndedAt,
+      elicitationDurationMs: elicitationDurationMs,
+      elicitationEngagement: elicitationEngagement,
+    });
+    this.router.navigate([this.submittedPath()], { queryParamsHandling: 'preserve' });
   }
 
   hoverSubject(subject: any) {
@@ -580,7 +656,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
    */
   ngOnInit(): void {
     if (localStorage.getItem(this.getSubmissionStorageKey())) {
-      this.router.navigate(["/submitted"], { queryParamsHandling: "preserve" });
+      this.router.navigate([this.submittedPath()], { queryParamsHandling: "preserve" });
       return;
     }
     if (this.global.isTutorial) {
@@ -790,7 +866,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
             // UtilsService) instead of continuing the task.
             localStorage.setItem(context.utilsService.getRefreshedStorageKey(context.global.participantId), 'true');
             localStorage.setItem(context.getSubmissionStorageKey(), 'true');
-            context.router.navigate(['/submitted'], { queryParamsHandling: 'preserve' });
+            context.router.navigate([context.submittedPath()], { queryParamsHandling: 'preserve' });
           }
         }
       });
@@ -900,11 +976,21 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
         context.onLlmSummary(obj);
       });
 
-      context.showPriorModal = true;
-      context.elicitationStartedAt = Date.now();
-      if (context.global.isTutorial) {
-        // Let Angular render the modal before driver.js queries its DOM.
-        setTimeout(() => startElicitationIntro(), 150);
+      // sessionMode "main" skips elicitation entirely -- that phase belongs
+      // to the separate /elicitation visit -- and goes straight into the main
+      // task (or its own dummy-data page tour, in tutorial mode).
+      if (context.global.sessionMode === "main") {
+        context.mainTaskStartedAt = Date.now();
+        if (context.global.isTutorial) {
+          setTimeout(() => startTutorial(context.appConfig[context.global.appMode], context.llmRealtimeEnabled), 150);
+        }
+      } else {
+        context.showPriorModal = true;
+        context.elicitationStartedAt = Date.now();
+        if (context.global.isTutorial) {
+          // Let Angular render the modal before driver.js queries its DOM.
+          setTimeout(() => startElicitationIntro(), 150);
+        }
       }
     });
   }

@@ -12,8 +12,14 @@
 
         <!-- completion state -->
         <div *ngIf="done">
-          <div class="modal-title">All done!</div>
-          <div class="modal-subtitle">Your prior beliefs have been recorded for all attributes.</div>
+          <ng-container *ngIf="global.isTutorial; else realDoneTitle">
+            <div class="modal-title">Tutorial complete!</div>
+            <div class="modal-subtitle">Thank you for completing the elicitation tutorial. Click Continue to move on to the next part.</div>
+          </ng-container>
+          <ng-template #realDoneTitle>
+            <div class="modal-title">All done!</div>
+            <div class="modal-subtitle">Your prior beliefs have been recorded for all attributes.</div>
+          </ng-template>
         </div>
 
         <!-- distribution step -->
@@ -56,7 +62,12 @@
       <!-- completion state -->
       <div *ngIf="done" class="completion-state">
         <div class="completion-icon">✓</div>
-        <div class="completion-message">All {{ totalSteps }} attributes complete.</div>
+        <div class="completion-message" *ngIf="global.isTutorial; else realDoneMessage">
+          You've practiced the elicitation exercise on sample data -- next you'll do it for real.
+        </div>
+        <ng-template #realDoneMessage>
+          <div class="completion-message">All {{ totalSteps }} attributes complete.</div>
+        </ng-template>
       </div>
 
       <!-- balls and bins ui -->
@@ -143,7 +154,7 @@
     <!-- footer -->
     <div class="modal-footer">
       <button *ngIf="!done && !isFirstStep" (click)="goBack()">Back</button>
-      <button *ngIf="done" class="primary" (click)="close()">Close</button>
+      <button *ngIf="done" class="primary" (click)="close()">{{ global.isTutorial ? 'Continue' : 'Close' }}</button>
       <button *ngIf="!done && !confidenceStep" class="primary" (click)="save()" [disabled]="!canSave">Save & continue</button>
       <button *ngIf="!done && confidenceStep" class="primary" (click)="submitConfidence()" [disabled]="confidenceRating === null">
         {{ currentStep < totalSteps ? 'Next attribute →' : 'Finish' }}

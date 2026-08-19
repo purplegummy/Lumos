@@ -66,6 +66,11 @@ export class ChatService {
     this.vizSocket.emit("on_task_submitted", payload);
   }
 
+  sendElicitationSubmission(payload) {
+    if (this.tutorialMode) return;
+    this.vizSocket.emit("on_elicitation_submitted", payload);
+  }
+
   sendParticipantRefreshed(payload) {
     if (this.tutorialMode) return;
     this.vizSocket.emit("on_participant_refreshed", payload);

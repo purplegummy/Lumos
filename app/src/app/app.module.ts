@@ -27,6 +27,7 @@ import { ElicitationModalComponent } from "./components/prior/modal/modal";
 import { LlmInterventionComponent } from "./components/llm/intervention";
 import { SubmissionCompleteComponent } from "./submission-complete/component";
 import { TaskIntroComponent } from "./task-intro/component";
+import { ElicitationIntroComponent } from "./elicitation-intro/component";
 
 const config: SocketIoConfig = {
   url: DeploymentConfig.SERVER_URL,
@@ -42,7 +43,8 @@ const config: SocketIoConfig = {
     ElicitationModalComponent,
     LlmInterventionComponent,
     SubmissionCompleteComponent,
-    TaskIntroComponent
+    TaskIntroComponent,
+    ElicitationIntroComponent
   ],
   imports: [
     NgMultiSelectDropDownModule.forRoot(),
