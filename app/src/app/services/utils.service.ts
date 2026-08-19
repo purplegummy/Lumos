@@ -25,12 +25,12 @@ export class UtilsService {
   // character longer than a normal "LX-XXXXXX" code) so a researcher scanning
   // submitted codes can immediately spot and exclude refreshed sessions.
   readonly REFRESHED_VERIFICATION_CODE = "LX-RRRRRRR";
+  // Elicitation-phase counterpart of REFRESHED_VERIFICATION_CODE -- the "LE-"
+  // prefix (vs "LX-") lets a researcher tell at a glance which phase a
+  // flagged code came from now that /elicitation and /main are submitted
+  // (and can be flagged) independently.
+  readonly ELICITATION_REFRESHED_VERIFICATION_CODE = "LE-RRRRRRR";
 
-  // Same pattern as REFRESHED_VERIFICATION_CODE, but for participants who blew
-  // through elicitation and/or the main task faster than the minimums below --
-  // one fixed code shared by all of them so it's easy to spot when scanning
-  // submitted codes.
-  readonly INSUFFICIENT_DURATION_VERIFICATION_CODE = "LX-DDDDDDD";
   readonly MIN_ELICITATION_MS = 4 * 60 * 1000;
   readonly MIN_MAIN_TASK_MS = 10 * 60 * 1000;
 
@@ -38,19 +38,19 @@ export class UtilsService {
    * Deterministic verification code derived from the participant ID, so the same
    * participant always gets the same code and a researcher can recompute it from
    * the logged participantId to confirm it wasn't fabricated. Pass `refreshed`
-   * to get the shared flagged code instead (see REFRESHED_VERIFICATION_CODE), or
-   * `insufficientDuration` for the too-fast flagged code. `refreshed` takes
-   * priority if somehow both apply.
+   * to get the shared flagged code instead (see REFRESHED_VERIFICATION_CODE).
+   * Pass `elicitation` for the /elicitation-phase code -- same derivation, "LE-"
+   * prefix instead of "LX-", so it can never collide with the main-study code
+   * even for the same participant.
    */
-  generateVerificationCode(participantId: string, refreshed: boolean = false, insufficientDuration: boolean = false): string {
-    if (refreshed) return this.REFRESHED_VERIFICATION_CODE;
-    if (insufficientDuration) return this.INSUFFICIENT_DURATION_VERIFICATION_CODE;
+  generateVerificationCode(participantId: string, refreshed: boolean = false, elicitation: boolean = false): string {
+    if (refreshed) return elicitation ? this.ELICITATION_REFRESHED_VERIFICATION_CODE : this.REFRESHED_VERIFICATION_CODE;
     let hash = 5381;
     for (let i = 0; i < participantId.length; i++) {
       hash = ((hash * 33) ^ participantId.charCodeAt(i)) >>> 0;
     }
     const code = hash.toString(36).toUpperCase().padStart(6, "0");
-    return `LX-${code}`;
+    return `${elicitation ? "LE" : "LX"}-${code}`;
   }
 
   /**
@@ -60,16 +60,6 @@ export class UtilsService {
    */
   getRefreshedStorageKey(participantId: string): string {
     return `lumos_refreshed_${participantId}`;
-  }
-
-  /**
-   * localStorage key marking that this participant's elicitation and/or main
-   * task duration fell under MIN_ELICITATION_MS/MIN_MAIN_TASK_MS -- shared
-   * between the main task (which sets it) and the submission-complete page
-   * (which reads it to decide which verification code to show).
-   */
-  getInsufficientDurationStorageKey(participantId: string): string {
-    return `lumos_insufficient_duration_${participantId}`;
   }
 
   /**

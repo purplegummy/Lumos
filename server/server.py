@@ -156,6 +156,20 @@ def ensure_client(sid, pid, app_mode, app_type, app_level, participant_id_source
         CLIENTS[pid]["response_list"] = []
         CLIENTS[pid]["priors"] = {}  # {attribute: PriorBelief}, last-write-wins
 
+        # Split-flow support: this is the first time THIS server process has
+        # ever seen this participant (fresh CLIENTS entry), but they may have
+        # already completed /elicitation in an earlier, separate session --
+        # possibly against a since-restarted server process, so nothing of
+        # theirs survives in memory. Reload whatever priors Firestore has for
+        # them and, if all variables are complete, compute dc_map right away
+        # so a /main-only session still gets bias metrics/LLM intervention
+        # from the start, not just combined-flow sessions where elicitation
+        # just happened in-process.
+        reloaded_priors = firebase_logger.load_priors(pid)
+        if reloaded_priors:
+            CLIENTS[pid]["priors"] = reloaded_priors
+            maybe_compute_dc_map(pid, app_mode, CLIENTS[pid])
+
     if app_mode != CLIENTS[pid]["app_mode"] or app_level != CLIENTS[pid]["app_level"]:
         # datasets have been switched => reset the logs array!
         # OR
@@ -197,36 +211,50 @@ async def on_commit_priors(sid, data):
         firebase_logger.save_priors(pid, client["priors"])
         firebase_logger.save_meta(pid, client)
 
-        # --- DC map: compute ONCE all six variables have BOTH conditions ------
-        # Reshape stored priors via the adapter (guards incomplete vars + asserts
-        # shared bins). When ready, compute the per-teen DC map a single time and
-        # cache it on the client record for compute_metrics to read live.
-        ready, beliefs, report = dc_adapter.is_ready(client["priors"])
-        print(f"[DC] {pid}: {len(report['complete'])}/{dc_adapter.EXPECTED_VARIABLE_COUNT} "
-              f"variables complete {report['complete']}"
-              + (f" | incomplete-so-far {report['skipped_incomplete']}" if report['skipped_incomplete'] else ""),
-              flush=True)
-        if ready:
-            teens = bias.DATA_MAP.get(app_mode, {}).get("data", {})
-            sample = next(iter(teens.values()), {})
-            if teens and dc_metric.LABEL_ATTR in sample:
-                dmap = dc_metric.dc_map(teens, beliefs)
-                client["dc_map"] = dmap
-                # The reshaped beliefs themselves, for llm_intervention: the belief
-                # bins are what the recommended filter range is now drawn from.
-                client["beliefs"] = beliefs
-                # Detailed map (per-teen {dc, consistency, weights}) for the dwell
-                # metrics; same teens/beliefs, computed once alongside dc_map.
-                client["dc_map_detailed"] = dc_metric.dc_map_detailed(teens, beliefs)
-                mean_dc = sum(dmap.values()) / len(dmap) if dmap else 0.0
-                print(f"[DC] DC map computed for {pid}: {len(dmap)} teens, "
-                      f"mean DC {mean_dc:.4f} (vars: {report['complete']})", flush=True)
-            else:
-                print(f"[DC] {pid}: dataset '{app_mode}' has no '{dc_metric.LABEL_ATTR}' "
-                      f"label column; skipping DC map.", flush=True)
+        maybe_compute_dc_map(pid, app_mode, client)
     except Exception as e:
         print(f"[on_commit_priors] ERROR: {e}", flush=True)
         raise
+
+
+def maybe_compute_dc_map(pid, app_mode, client):
+    """Compute the per-teen DC map ONCE all six elicited variables have both
+    conditions, caching it on the client record for compute_metrics /
+    on_task_submitted / llm_intervention to read live for the rest of this
+    session.
+
+    Shared by on_commit_priors (elicitation just happened, in this same
+    session) and ensure_client (the /main-only split flow: elicitation
+    happened in an earlier, separate session, so its priors -- reloaded from
+    Firestore -- are only reaching this server process's memory for the
+    first time now).
+    """
+    # Reshape stored priors via the adapter (guards incomplete vars + asserts
+    # shared bins).
+    ready, beliefs, report = dc_adapter.is_ready(client["priors"])
+    print(f"[DC] {pid}: {len(report['complete'])}/{dc_adapter.EXPECTED_VARIABLE_COUNT} "
+          f"variables complete {report['complete']}"
+          + (f" | incomplete-so-far {report['skipped_incomplete']}" if report['skipped_incomplete'] else ""),
+          flush=True)
+    if not ready:
+        return
+    teens = bias.DATA_MAP.get(app_mode, {}).get("data", {})
+    sample = next(iter(teens.values()), {})
+    if teens and dc_metric.LABEL_ATTR in sample:
+        dmap = dc_metric.dc_map(teens, beliefs)
+        client["dc_map"] = dmap
+        # The reshaped beliefs themselves, for llm_intervention: the belief
+        # bins are what the recommended filter range is now drawn from.
+        client["beliefs"] = beliefs
+        # Detailed map (per-teen {dc, consistency, weights}) for the dwell
+        # metrics; same teens/beliefs, computed once alongside dc_map.
+        client["dc_map_detailed"] = dc_metric.dc_map_detailed(teens, beliefs)
+        mean_dc = sum(dmap.values()) / len(dmap) if dmap else 0.0
+        print(f"[DC] DC map computed for {pid}: {len(dmap)} teens, "
+              f"mean DC {mean_dc:.4f} (vars: {report['complete']})", flush=True)
+    else:
+        print(f"[DC] {pid}: dataset '{app_mode}' has no '{dc_metric.LABEL_ATTR}' "
+              f"label column; skipping DC map.", flush=True)
 
 
 @SIO.on('on_participant_refreshed')
@@ -246,6 +274,27 @@ async def on_participant_refreshed(sid, data):
     firebase_logger.save_refresh_event(pid, ts)
 
 
+@SIO.on('on_elicitation_submitted')
+async def on_elicitation_submitted(sid, data):
+    pid = data.get("participantId")
+    code = data.get("verificationCode")
+    elicitation_started_at = data.get("elicitationStartedAt")
+    elicitation_ended_at = data.get("elicitationEndedAt")
+    elicitation_duration_ms = data.get("elicitationDurationMs")
+    elicitation_engagement = data.get("elicitationEngagement")
+    if pid:
+        submitted_at = bias_util.get_current_time()
+        firebase_logger.save_elicitation_submission(
+            pid, code, submitted_at,
+            elicitation_started_at=elicitation_started_at,
+            elicitation_ended_at=elicitation_ended_at,
+            elicitation_duration_ms=elicitation_duration_ms,
+            elicitation_engagement=elicitation_engagement,
+        )
+        print(f"Elicitation submitted for {pid}: {code}"
+              f" | elicitation_ms={elicitation_duration_ms} elicitation_engagement={elicitation_engagement}")
+
+
 @SIO.on('on_selected_subjects')
 async def on_selected_subjects(sid, data):
     pid = data.get("participantId")
@@ -260,20 +309,30 @@ async def on_task_submitted(sid, data):
     pid = data.get("participantId")
     code = data.get("verificationCode")
     subjects = data.get("selected_subjects", [])
+    elicitation_started_at = data.get("elicitationStartedAt")
+    elicitation_ended_at = data.get("elicitationEndedAt")
     elicitation_duration_ms = data.get("elicitationDurationMs")
+    elicitation_engagement = data.get("elicitationEngagement")
+    main_task_started_at = data.get("mainTaskStartedAt")
+    main_task_ended_at = data.get("mainTaskEndedAt")
     main_task_duration_ms = data.get("mainTaskDurationMs")
-    insufficient_duration = bool(data.get("insufficientDuration"))
+    main_engagement = data.get("mainEngagement")
     if pid:
         submitted_at = bias_util.get_current_time()
         firebase_logger.save_task_submission(
             pid, code, subjects, submitted_at,
+            elicitation_started_at=elicitation_started_at,
+            elicitation_ended_at=elicitation_ended_at,
             elicitation_duration_ms=elicitation_duration_ms,
+            elicitation_engagement=elicitation_engagement,
+            main_task_started_at=main_task_started_at,
+            main_task_ended_at=main_task_ended_at,
             main_task_duration_ms=main_task_duration_ms,
-            insufficient_duration=insufficient_duration,
+            main_engagement=main_engagement,
         )
         print(f"Task submitted for {pid}: {code}"
-              f" | elicitation_ms={elicitation_duration_ms} main_task_ms={main_task_duration_ms}"
-              f" insufficient_duration={insufficient_duration}")
+              f" | elicitation_ms={elicitation_duration_ms} elicitation_engagement={elicitation_engagement}"
+              f" main_task_ms={main_task_duration_ms} main_engagement={main_engagement}")
 
         # --- SelectionBias percentile: computed ONCE here at submit time from the
         # CACHED dc_map + the FINAL submitted selection (no DC recompute). Shiyao

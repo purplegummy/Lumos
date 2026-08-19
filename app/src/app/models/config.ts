@@ -25,6 +25,11 @@ export class SessionPage {
   "appType": string = "AWARENESS"; // CONTROL | ADMIN | AWARENESS
   "appLayout": string = "AWARENESS"; // tracks original URL ?type= for layout purposes
   "isTutorial": boolean = false; // true when running the dummy-data walkthrough (?tutorial=1)
+  // "combined" (route "/", unchanged legacy flow), "elicitation" (route "/elicitation"),
+  // or "main" (route "/main") -- set once from the matched route's static data, see
+  // app-routing.module.ts. Lets MainActivityComponent/SubmissionCompleteComponent share
+  // one implementation across all three routes instead of forking into separate components.
+  "sessionMode": string = "combined";
 }
 
 export const DeploymentConfig = Object.freeze({

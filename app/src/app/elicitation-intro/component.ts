@@ -2,15 +2,15 @@ import { Component } from "@angular/core";
 import { ActivatedRoute, Router } from "@angular/router";
 
 @Component({
-  selector: "app-task-intro",
+  selector: "app-elicitation-intro",
   templateUrl: "./component.html",
   styleUrls: ["./component.scss"],
 })
-export class TaskIntroComponent {
+export class ElicitationIntroComponent {
   constructor(private router: Router, private route: ActivatedRoute) {}
 
-  startTask(): void {
-    const dest = this.route.snapshot.data["dest"] || "/";
+  startElicitation(): void {
+    const dest = this.route.snapshot.data["dest"] || "/elicitation";
     this.router.navigate([dest], { queryParamsHandling: "preserve" });
   }
 }
