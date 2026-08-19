@@ -68,10 +68,6 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   // from -- stays null); marks when the main task actually became usable.
   private mainTaskStartedAt: number | null = null;
   private _llmIntervention: any = null;
-  llmSummary: any = null;
-  llmSummaryLoading = false;
-  private llmSummaryRequested = false;
-  private llmSummaryTimer: any = null;
   private llmPanelTimer: any = null;
   // Selection is held closed from the moment the selection intervention fires
   // until its message arrives -- generation takes ~10s, and without this the
@@ -272,7 +268,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
       // intervention can run, while appLayout stays CONTROL so none of the
       // awareness/trace panels render. Without that split the LLM conditions
       // would be LLM+AWARENESS and their effect could never be isolated.
-      // LLM = realtime only, LLM_SUMMARY = pre-submission summary only,
+      // LLM = realtime only, LLM_SUMMARY = selection intervention only,
       // LLM_BOTH = both.
       const typeToLayout: Record<string, string> = {
         LLM: "CONTROL",
@@ -290,7 +286,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
       // appType stays whatever was actually requested when it's a realtime-LLM
       // condition (LLM or LLM_BOTH) rather than being forced to CONTROL -- the
       // LLM tutorial needs llmRealtimeEnabled so showLlmPanel can turn on below.
-      // LLM_SUMMARY (summary-only, no realtime panel) gets the plain CONTROL
+      // LLM_SUMMARY (selection intervention only, no dwell nudges) gets the plain CONTROL
       // tutorial, same as CONTROL itself.
       if (isTutorialRequested(params)) {
         this.global.isTutorial = true;
@@ -364,65 +360,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   }
 
   confirmSubmit() {
-    // The summary replaces the confirm dialog the first time only. Re-showing it
-    // after a revision would let the participant loop between reflecting and
-    // revising with no way to finish. Skipped in the tutorial: the dummy dataset
-    // has nothing worth summarizing, and submitting there just hands off to the
-    // real task, so the summary step doesn't belong in the walkthrough.
-    if (this.llmSummaryEnabled && !this.llmSummaryRequested && !this.global.isTutorial) {
-      this.requestLlmSummary();
-      return;
-    }
     this.showSubmitConfirm = true;
-  }
-
-  private requestLlmSummary() {
-    this.llmSummaryRequested = true;
-    this.llmSummaryLoading = true;
-    // Timer FIRST: the loading modal has no buttons, so if anything below threw
-    // the participant would be stuck in it with no way to submit at all.
-    // The server owns the real deadline (llm_intervention.GENERATION_TIMEOUT_SECONDS,
-    // well under this); this only covers a reply that never arrives.
-    this.llmSummaryTimer = setTimeout(() => this.onLlmSummary(null), LLM_SUMMARY_TIMEOUT_MS);
-    this.chatService.requestLlmSummary({
-      participantId: this.global['participantId'],
-      participantIdSource: this.global['participantIdSource'],
-      appMode: this.global.appMode,
-      appType: this.global.appType,
-      appLevel: this.global.appLevel,
-      selected_subjects: Object.keys(this.appConfig[this.global.appMode]['selectedObjects']),
-    });
-  }
-
-  // Kept separately from llmSummary (which the modal's *ngIf is driven by, and
-  // which "Go back and revise" nulls out to close it) so the content survives
-  // dismissal -- viewSummary() below re-opens the modal from this cache
-  // without re-requesting from the server or re-showing the loading state.
-  lastLlmSummary: any = null;
-  // True only while the modal is open via viewSummary() (looking back at an
-  // already-submitted-worthy summary out of curiosity), false while it's
-  // open as part of an actual submit attempt. Drives whether the modal shows
-  // "Submit anyway" -- reviewing the summary should never itself be a way to
-  // submit the task.
-  summaryViewOnly = false;
-
-  onLlmSummary(obj) {
-    if (!this.llmSummaryLoading) return; // a late reply we already gave up on
-    clearTimeout(this.llmSummaryTimer);
-    this.llmSummaryLoading = false;
-    // Nothing to show (gate not met, no dc_map, generation failed) carries a
-    // reason instead of themes; fall through to the usual confirm dialog.
-    if (obj && obj['recommended_themes']) {
-      this.summaryViewOnly = false;
-      this.llmSummary = obj;
-      this.lastLlmSummary = obj;
-    } else {
-      // Only a summary the participant actually SAW closes the door. Leaving the
-      // flag set here would let one transient failure drop them to a de-facto
-      // CONTROL session for the rest of the task.
-      this.llmSummaryRequested = false;
-      this.showSubmitConfirm = true;
-    }
   }
 
   /**
@@ -445,23 +383,6 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   endLlmSelectionPending(): void {
     clearTimeout(this.llmSelectionTimer);
     this.llmSelectionPending = false;
-  }
-
-  /** Apply a summary theme's filters and step back into the task to revise. */
-  reviseWithTheme(theme): void {
-    this.applyThemeFilter(theme);
-    this.llmSummary = null;
-  }
-
-  /**
-   * Re-open the most recently generated summary on demand, e.g. from a "View
-   * Summary" button -- lets the participant look back at it anytime after
-   * dismissing it, without triggering a new LLM request or the submit flow.
-   */
-  viewSummary(): void {
-    if (!this.lastLlmSummary) return;
-    this.summaryViewOnly = true;
-    this.llmSummary = this.lastLlmSummary;
   }
 
   cancelSubmit() {
@@ -970,10 +891,6 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
         } else {
           context.endLlmSelectionPending();
         }
-      });
-
-      context.chatService.getLlmSummary().subscribe((obj) => {
-        context.onLlmSummary(obj);
       });
 
       // sessionMode "main" skips elicitation entirely -- that phase belongs

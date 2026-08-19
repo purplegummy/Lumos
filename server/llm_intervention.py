@@ -63,19 +63,11 @@ SUPPORTED_VARIABLES = {
     "child_age_years",
     "child_sex",                           # categorical, only two categories
 }
-SUMMARY_EVENT = "llm_summary"
 # Raised the moment the selection intervention fires and lowered when its message
 # (or the news that none is coming) arrives. Generation takes ~10s, long enough for
 # the participant to pick two or three more teens before seeing anything, so the
 # frontend holds selection closed for exactly that window.
 SELECTION_PENDING_EVENT = "llm_selection_pending"
-
-FALLBACK_SUMMARY = {
-    "awareness_summary": "Thank you for completing the selections.",
-    "transition": "Do you want to review your selection and make potential changes "
-                  "before completing the task?",
-    "recommended_themes": [],
-}
 
 # A belief bin can be narrow enough that one bin plus one diagnosis group leaves
 # almost nothing on screen. Below this, the recommended range widens.
@@ -701,53 +693,6 @@ def live_room(sio, sid_by_pid, pid):
     return sid
 
 
-async def emit_fallback_summary(sio, room, pid=None):
-    """Stand in for a summary that could not be generated.
-
-    Everyone in the summary conditions gets a modal now, so the failure paths --
-    no positively-biased variable to talk about, a dead API key, a timeout --
-    need something to render rather than dropping the participant into the plain
-    confirm dialog. Says nothing about which way their selection leans, because
-    the same text covers the biased and balanced cases.
-    """
-    if room is not None:
-        await sio.emit(SUMMARY_EVENT, dict(FALLBACK_SUMMARY), room=room)
-    print(f"[LLM] {pid}: fallback summary "
-          f"{'sent' if room is not None else 'NOT delivered (no live socket)'}",
-          flush=True)
-    if pid:
-        firebase_logger.save_logs(pid, [{
-            "kind": "llm_summary_fallback",
-            "participant_id": pid,
-            "created_at": _now(),
-            "delivered": room is not None,
-        }])
-
-
-async def emit_summary_skip(sio, room, reason, pid=None):
-    """Tell the frontend no summary is coming, so it can proceed to submit.
-
-    The participant's submit button waits on a SUMMARY_EVENT, so every path that
-    does not produce one -- gate not met, no dc_map, dead API key -- has to say so
-    explicitly. Staying silent would leave them unable to finish the study. The
-    frontend tells the two apart by the absence of recommended_themes.
-
-    Persists the outcome too: without it the treated-vs-untreated split for the
-    summary conditions exists only in stdout, and a participant who was gated out
-    is indistinguishable in the data from one who was never in the condition.
-    """
-    if room is not None:
-        await sio.emit(SUMMARY_EVENT, {"reason": reason}, room=room)
-    if pid:
-        firebase_logger.save_logs(pid, [{
-            "kind": "llm_summary_skipped",
-            "participant_id": pid,
-            "created_at": _now(),
-            "reason": reason,
-            "delivered": room is not None,
-        }])
-
-
 async def generate_and_emit(sio, sid_by_pid, pid, client_record, dwell_metrics, teens):
     """Background task: assemble -> generate -> emit the realtime intervention.
 
@@ -775,52 +720,15 @@ async def generate_and_emit(sio, sid_by_pid, pid, client_record, dwell_metrics, 
         axes=get_current_axes(client_record))
 
 
-async def generate_summary_and_emit(sio, sid_by_pid, pid, client_record,
-                                    selection, teens, selected_ids, biased=True):
-    """Background task: the same pipeline, run on the FINAL SELECTION at submit.
-
-    Differs from generate_and_emit only in the arguments below: the teens are
-    weighted equally by having been selected rather than by dwell time, the
-    per-variable scores come from the selection, the trigger signal names the
-    selection, and the event is SUMMARY_EVENT.
-
-    `biased` is the trigger outcome, and only picks which of the two phases the
-    prompt writes: "final_check" carries a recommendation, "balanced_check" is a
-    recap with nothing to correct. Everything upstream of the prompt is identical
-    -- the same variable, the same cells -- because what the participant attended
-    to is worth reflecting back either way.
-
-    Emits exactly one SUMMARY_EVENT either way -- a generation that failed, timed
-    out, or could not be delivered still has to release the submit button.
-    """
-    generated = await _generate_and_emit(
-        sio, sid_by_pid, pid, client_record, teens,
-        weights={teen_id: 1.0 for teen_id in selected_ids},
-        attention={"selected_ids": selected_ids},
-        bias_v=selection.get("selection_bias_v", {}),
-        phase="final_check" if biased else "balanced_check",
-        trigger_signal=("selection-level bias over the participant's final selection "
-                        "exceeded participant-specific threshold") if biased else
-                       ("the participant's final selection is NOT unusually biased -- "
-                        "it sits within the normal range for their beliefs"),
-        event=SUMMARY_EVENT,
-        # TODO: confirm with Shiyao whether the summary path should also get axis
-        # preference. For now axes=None keeps it pure argmax on selection_bias_v.
-        axes=None)
-    if not generated:
-        await emit_fallback_summary(sio, live_room(sio, sid_by_pid, pid), pid)
-
-
 async def generate_selection_and_emit(sio, sid_by_pid, pid, client_record,
                                       selection, teens, selected_ids, target_var):
     """Background task: a NON-blocking, per-selection nudge on the running selection.
 
-    The selection-weighted sibling of the REALTIME dwell nudge (generate_and_emit),
-    not the submit-blocking summary. It reuses the shared core exactly like the other
-    two wrappers, differing only in the arguments below: teens are weighted equally by
-    having been selected (as the summary path does), the per-variable scores come from
-    the selection, and -- unlike the submit summary -- the phase and event are the
-    REALTIME ones ("realtime" / "llm_intervention"), so this delivers a live nudge and
+    The selection-weighted sibling of the REALTIME dwell nudge (generate_and_emit):
+    it reuses the shared core, differing only in the arguments below. Teens are
+    weighted equally by having been selected, the per-variable scores come from
+    the selection, and the phase and event are the REALTIME ones ("realtime" /
+    "llm_intervention"), so this delivers a live nudge and
     never blocks a submit. There is no fallback MESSAGE, but the pending state must
     still end: the frontend has selection closed until it hears back, so a generation
     that produced nothing has to say so.
@@ -893,7 +801,7 @@ async def _generate_and_emit(sio, sid_by_pid, pid, client_record, teens,
 
         session = {
             "phase": phase,
-            # Carries selection-weighted scores on the final_check path. The key
+            # Carries selection-weighted scores on the selection path. The key
             # keeps its dwell name so the llm_samples fixtures stay valid.
             "dwell_bias_v": bias_v,
             # Axis attributes for top_variable's realtime axis-preference (None on
@@ -949,10 +857,6 @@ async def _generate_and_emit(sio, sid_by_pid, pid, client_record, teens,
             print(f"[LLM] {pid}: no output ({elapsed:.1f}s)", flush=True)
             return False
 
-        if phase == "balanced_check":
-            # The prompt asks for none, but a model that recommends anyway would
-            # be handing a correction to someone just told they are balanced.
-            result["recommended_themes"] = []
 
         # Attach both halves of each recommended theme's filter: the variable its
         # range applies to, and the diagnosis status it contrasts against. The

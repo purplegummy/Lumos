@@ -14,17 +14,11 @@ when the trigger policy does:
    beliefs pooled, and one axis cooling down never blocks the other. should_trigger
    is a thin bool wrapper for callers that don't need the reason.
 
-2. evaluate_summary_trigger -- the pre-submission summary decision: the same
-   percentile test scored on the final selection
-   (dc_metric.selection_bias_percentile) rather than on dwell.
-
-3. evaluate_selection_progressive_trigger -- a per-selection sibling of the realtime
+2. evaluate_selection_progressive_trigger -- a per-selection sibling of the realtime
    dwell trigger (1), scoring the running selection per variable and firing on the
-   single most extreme one (Shiyao's max-across-variables rule). Deliberately
-   separate from evaluate_summary_trigger (2), which stays the submit-time summary
-   path unchanged. Wired live through evaluate_selection_trigger, which wraps it in
-   the pick-counted cooldown that keeps it from firing on every selection past
-   the 5th.
+   single most extreme one (Shiyao's max-across-variables rule). Wired live through
+   evaluate_selection_trigger, which wraps it in the pick-counted cooldown that
+   keeps it from firing on every selection past the 5th.
 
 This module reads from dc_metric (scoring) plus dc_adapter (the scoped-map
 reshape) and llm_intervention (get_current_axes); it modifies none of them.
@@ -45,9 +39,9 @@ DWELL_PERCENTILE_THRESHOLD = 0.80  # fire when DwellBias is at/above this percen
 DWELL_RECHECK_SECONDS = 10.0       # min extra dwell between two checks of the SAME axis var
 
 # --------------------------------------------------------------------------- #
-# Summary gate -- the pre-submission reflection, scored on the participant's
-# FINAL SELECTION rather than on live dwell. Same percentile test
-# (dc_metric.selection_bias_percentile); no cooldown/recheck (asked once at submit).
+# Selection gate -- scored on the participant's RUNNING SELECTION rather than on
+# live dwell. Same percentile test (dc_metric.selection_bias_percentile), applied
+# per variable by the progressive trigger below.
 # --------------------------------------------------------------------------- #
 MIN_SELECTIONS = 5                     # too few picks makes the mean DC meaningless
 SELECTION_PERCENTILE_THRESHOLD = 0.80  # fire when SelectionBias is at/above this percentile
@@ -229,40 +223,6 @@ def reset_dwell_watermark(client_record):
         checked_at[v] = now_seconds
 
 
-def evaluate_summary_trigger(client_record, selection_metrics, selected_ids):
-    """Decide whether to show the pre-submission summary, AND say why not.
-
-    Returns (fired, reason) -- evaluate_trigger's first two, without the trace --
-    scored on the participant's final selection instead of their dwell:
-
-        "ok" | "gate_min_selections" | "below_percentile"
-
-    Deliberately has NO cooldown and no recheck spacing: this is asked once, at
-    the moment the participant tries to submit. "Once per session" is enforced
-    CLIENT-side (llmSummaryRequested in main-activity/component.ts); this handler
-    does not guard against repeats.
-
-    The count is checked BEFORE the percentile: under MIN_SELECTIONS the mean DC
-    is dominated by which few teens happened to be picked, so "below_percentile"
-    would name the wrong cause.
-
-    client_record:     the CLIENTS[pid] dict (reads the scalar dc_map).
-    selection_metrics: the dict from llm_intervention.selection_metrics, i.e.
-                       {"selection_bias", "selection_bias_v", "n_selected"}.
-    selected_ids:      the participant's final selected teen ids.
-    """
-    n_selected = selection_metrics.get("n_selected", 0)
-    if n_selected < MIN_SELECTIONS:
-        return False, f"gate_min_selections ({n_selected} < {MIN_SELECTIONS})"
-
-    observed = selection_metrics["selection_bias"]
-    pct = dc_metric.selection_bias_percentile(client_record.get("dc_map"), selected_ids)
-    if pct is None or pct < SELECTION_PERCENTILE_THRESHOLD:
-        return False, f"below_percentile (pct={pct}, observed={observed:+.4f})"
-
-    return True, "ok"
-
-
 def evaluate_selection_trigger(client_record, selected_ids):
     """The live mid-task decision: the progressive trigger behind a pick cooldown.
 
@@ -302,17 +262,13 @@ def evaluate_selection_trigger(client_record, selected_ids):
 # the single most extreme variable (Shiyao's rule). Reached live only through
 # evaluate_selection_trigger above, whose pick-counted cooldown keeps it from
 # firing on every selection past the 5th.
-#
-# Deliberately separate from evaluate_summary_trigger above, which stays the
-# submit-time summary path exactly as it is.
 # --------------------------------------------------------------------------- #
 def evaluate_selection_progressive_trigger(client_record, selected_ids):
     """Per-variable selection-bias fire decision for the running selection.
 
     Sibling of evaluate_trigger (the realtime dwell gate) in shape -- a readiness
     gate first, then the scoped scoring -- but scored on the SELECTION and across
-    ALL belief variables, since selection has no axes to scope to. It does NOT
-    modify or replace evaluate_summary_trigger; it is new, isolated logic.
+    ALL belief variables, since selection has no axes to scope to.
 
     Returns a dict. Below readiness:
       {"ready": False, "reason": "not_ready (...)", "n_selected", "percentile_by_var": None}
@@ -333,8 +289,8 @@ def evaluate_selection_progressive_trigger(client_record, selected_ids):
     log can show how close it got. Variables whose percentile is None (nothing
     selected present in the map -- uniform across variables) are excluded from the max.
 
-    Readiness: n_selected >= MIN_SELECTIONS, the SAME constant and threshold the
-    submit-time gate uses, which is what makes this "start at the 5th selection."
+    Readiness: n_selected >= MIN_SELECTIONS, which is what makes this "start at
+    the 5th selection."
 
     client_record: the CLIENTS[pid] dict (reads dc_map_detailed).
     selected_ids:  the participant's currently-selected teen ids.

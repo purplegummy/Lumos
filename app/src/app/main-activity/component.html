@@ -4,10 +4,6 @@
     <div class="navbar-brand">Lumos</div>
   </div>
   <div style="position: absolute; top: 50%; right: 16px; transform: translateY(-50%); display: flex; gap: 8px;">
-    <button *ngIf="llmSummaryEnabled && lastLlmSummary" class="btn btn-outline-secondary btn-sm"
-      (click)="viewSummary()">
-      View Summary
-    </button>
     <button *ngIf="global.appLayout === 'CONTROL'" class="btn btn-outline-secondary btn-sm"
       (click)="showInstructionsModal = true">
       View Instructions
@@ -1017,42 +1013,14 @@
     (closed)="onPriorModalClosed()"
   ></app-elicitation-modal>
 
-  <!-- Pre-submission summary (LLM_SUMMARY / LLM_BOTH). Stands in for the confirm
-       dialog below on the first submit; both are never open at once. Shares its
-       backdrop with the mid-task holding dialogue, whose only job is to sit over
-       the plot so no further point can be picked while the message generates. -->
-  <div *ngIf="llmSummaryLoading || llmSelectionPending || llmSummary" class="confirm-modal-backdrop">
+  <!-- Mid-task holding dialogue: sits over the plot so no further point can be
+       picked while the selection intervention's message generates. No actions
+       while generating: disabled buttons read as broken. This state always ends
+       -- the pending event's subscription schedules a timeout as it opens. -->
+  <div *ngIf="llmSelectionPending" class="confirm-modal-backdrop">
     <div class="confirm-modal-panel llm-summary-panel">
-      <div class="confirm-modal-title">{{llmSelectionPending ? "One moment" : summaryViewOnly ? "Your summary" : "Before you submit"}}</div>
-
-      <!-- No actions while generating: disabled buttons read as broken. Both
-           states always end -- requestLlmSummary schedules a timer before it
-           sends anything, and so does the pending event's subscription. -->
-      <div class="confirm-modal-body" *ngIf="llmSummaryLoading">Taking a look at the teens you picked...</div>
-      <div class="confirm-modal-body" *ngIf="llmSelectionPending">Taking a look at your selection...</div>
-
-      <ng-container *ngIf="llmSummary">
-        <div class="confirm-modal-body">{{llmSummary.awareness_summary}}</div>
-        <div class="llm-summary-transition">{{llmSummary.transition}}</div>
-
-        <div class="llm-theme" *ngFor="let theme of llmSummary.recommended_themes">
-          <div class="llm-theme-title">{{theme.title}}</div>
-          <div class="llm-theme-description">{{theme.description}}</div>
-          <button class="btn btn-outline-secondary btn-sm" (click)="reviseWithTheme(theme)">Show me these →</button>
-        </div>
-
-        <!-- Just looking back at an already-seen summary: no submit action here,
-             only a way to close it. -->
-        <div class="confirm-modal-actions" *ngIf="summaryViewOnly">
-          <button class="btn btn-light btn-sm" (click)="llmSummary = null">Close</button>
-        </div>
-
-        <!-- Open as part of an actual submit attempt: same two choices as before. -->
-        <div class="confirm-modal-actions" *ngIf="!summaryViewOnly">
-          <button class="btn btn-light btn-sm" (click)="llmSummary = null">Go back and revise</button>
-          <button class="btn btn-primary btn-sm" (click)="submitTask()">Submit anyway</button>
-        </div>
-      </ng-container>
+      <div class="confirm-modal-title">One moment</div>
+      <div class="confirm-modal-body">Taking a look at your selection...</div>
     </div>
   </div>
 

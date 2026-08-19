@@ -381,84 +381,6 @@ async def on_llm_dismissed(sid, data=None):
         llm_trigger.reset_dwell_watermark(client_record)
 
 
-@SIO.on('on_llm_summary_request')
-async def on_llm_summary_request(sid, data=None):
-    """Generate the pre-submission summary for the participant's final selection.
-
-    Unlike the realtime intervention, which fires off the back of an interaction
-    the participant is not waiting on, this one blocks their submit button until
-    it replies. So every path either replies here or hands off to
-    generate_summary_and_emit, which replies on its success AND failure paths. A
-    silent path would leave them unable to finish the study, hence the outer
-    try/except -- this is the handler boundary, where this codebase already puts
-    its guards. `data` is defaulted for the same reason: socket.io raises the
-    missing-argument TypeError OUTSIDE this function, where nothing can reply.
-
-    Skips reply on `sid` directly rather than through the pid -> sid map, because
-    no time passes; only the generated summary, seconds later, needs the map.
-    """
-    pid = None
-    try:
-        pid = data.get("participantId")
-        app_type = data.get("appType")
-        selected = data.get("selected_subjects", [])
-
-        if app_type not in LLM_SUMMARY_TYPES:
-            print(f"[LLM] {pid}: summary skipped (app_type={app_type!r})", flush=True)
-            await llm_intervention.emit_summary_skip(
-                SIO, sid, "not_summary_condition", pid)
-            return
-
-        client_record = CLIENTS.get(pid)
-        detailed = client_record.get("dc_map_detailed") if client_record else None
-        if not detailed:
-            # No committed priors means no DC map, so there is nothing to score the
-            # selection against. Same absent-vs-error distinction as on_interaction.
-            print(f"[LLM] {pid}: summary skipped (no dc_map)", flush=True)
-            await llm_intervention.emit_summary_skip(SIO, sid, "no_dc_map", pid)
-            return
-
-        try:
-            selection = llm_intervention.selection_metrics(detailed, selected)
-        except Exception as e:
-            # selection_metrics inherits dc_metric's fail-loud raise on an unknown
-            # id. Guard here, exactly as on_interaction does for the dwell metrics.
-            print(f"[LLM] {pid}: summary metrics failed: {e}", flush=True)
-            await llm_intervention.emit_summary_skip(SIO, sid, "metrics_failed", pid)
-            return
-
-        fired, reason = llm_trigger.evaluate_summary_trigger(client_record, selection, selected)
-        # Both outcomes are shown: `fired` now decides whether a recommendation is
-        # attached, not whether the participant hears anything. Leaving the
-        # unbiased ones with nothing made the condition inconsistent, and inverted
-        # it -- realtime nudges make a participant less biased, which under the old
-        # gate cost them their summary.
-        print(f"[LLM] {pid}: summary {'triggered' if fired else 'not triggered'} "
-              f"({reason}, selection_bias={selection['selection_bias']:+.4f}, "
-              f"n_selected={selection['n_selected']})", flush=True)
-        # Persist the raw selection scores + outcome for BOTH fire and skip: the
-        # skip record carried only the reason text, and the generated-summary
-        # record carries no raw scores.
-        firebase_logger.save_logs(pid, [{
-            "kind": "summary_trigger",
-            "participant_id": pid,
-            "created_at": bias_util.get_current_time(),
-            "fired": fired,
-            "reason": reason,
-            "selection_bias": selection["selection_bias"],
-            "selection_bias_v": selection["selection_bias_v"],
-            "n_selected": selection["n_selected"],
-        }])
-        teens = bias.DATA_MAP.get(data.get("appMode"), {}).get("data", {})
-        SIO.start_background_task(
-            llm_intervention.generate_summary_and_emit,
-            SIO, CLIENT_PARTICIPANT_ID_SOCKET_ID_MAPPING, pid,
-            client_record, selection, teens, selected, fired)
-    except Exception as e:
-        print(f"[LLM] {pid}: summary handler failed: {e}", flush=True)
-        await llm_intervention.emit_summary_skip(SIO, sid, "handler_error", pid)
-
-
 @SIO.event
 async def on_interaction(sid, data):
     app_mode = data["appMode"]  # The dataset that is being used, e.g. cars.csv
@@ -592,7 +514,7 @@ async def on_interaction(sid, data):
         except Exception as e:
             print(f"[LLM] trigger failed: {e}", flush=True)
 
-    # --- LLM selection intervention (summary conditions) ----------------------
+    # --- LLM selection intervention (selection conditions) --------------------
     # Evaluated on every added pick rather than once at submit, so the feedback
     # arrives while there are still picks left to change. Fires the SAME panel the
     # realtime nudge uses; what is new here is the holding dialogue the frontend
