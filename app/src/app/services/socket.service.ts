@@ -97,6 +97,12 @@ export class ChatService {
       .pipe(map((obj) => obj));
   }
 
+  getLlmSelectionPending() {
+    return this.vizSocket
+      .fromEvent("llm_selection_pending")
+      .pipe(map((obj) => obj));
+  }
+
   getLlmSummary() {
     return this.vizSocket.fromEvent("llm_summary").pipe(map((obj) => obj));
   }

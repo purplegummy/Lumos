@@ -991,7 +991,8 @@
           </div>
         </as-split-area>
 
-        <!-- ROW: LLM Intervention Panel (LLM only) -->
+        <!-- ROW: LLM Intervention Panel (realtime nudges and, in the summary
+             conditions, the mid-task selection intervention) -->
         <as-split-area *ngIf="showLlmPanel" [size]="global.isTutorial ? 40 : 65">
           <app-llm-intervention
             [intervention]="llmIntervention"
@@ -1017,15 +1018,18 @@
   ></app-elicitation-modal>
 
   <!-- Pre-submission summary (LLM_SUMMARY / LLM_BOTH). Stands in for the confirm
-       dialog below on the first submit; both are never open at once. -->
-  <div *ngIf="llmSummaryLoading || llmSummary" class="confirm-modal-backdrop">
+       dialog below on the first submit; both are never open at once. Shares its
+       backdrop with the mid-task holding dialogue, whose only job is to sit over
+       the plot so no further point can be picked while the message generates. -->
+  <div *ngIf="llmSummaryLoading || llmSelectionPending || llmSummary" class="confirm-modal-backdrop">
     <div class="confirm-modal-panel llm-summary-panel">
-      <div class="confirm-modal-title">{{summaryViewOnly ? "Your summary" : "Before you submit"}}</div>
+      <div class="confirm-modal-title">{{llmSelectionPending ? "One moment" : summaryViewOnly ? "Your summary" : "Before you submit"}}</div>
 
-      <!-- No actions while generating: disabled buttons read as broken. This
-           state always ends because requestLlmSummary schedules a timer before
-           it sends anything. -->
+      <!-- No actions while generating: disabled buttons read as broken. Both
+           states always end -- requestLlmSummary schedules a timer before it
+           sends anything, and so does the pending event's subscription. -->
       <div class="confirm-modal-body" *ngIf="llmSummaryLoading">Taking a look at the teens you picked...</div>
+      <div class="confirm-modal-body" *ngIf="llmSelectionPending">Taking a look at your selection...</div>
 
       <ng-container *ngIf="llmSummary">
         <div class="confirm-modal-body">{{llmSummary.awareness_summary}}</div>

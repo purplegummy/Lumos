@@ -1,6 +1,6 @@
 """Trigger logic for the LLM intervention condition.
 
-Two responsibilities live here, kept small so the socket layer never changes
+Three responsibilities live here, kept small so the socket layer never changes
 when the trigger policy does:
 
 1. evaluate_trigger -- the realtime dwell decision. A global readiness gate (enough
@@ -18,13 +18,13 @@ when the trigger policy does:
    percentile test scored on the final selection
    (dc_metric.selection_bias_percentile) rather than on dwell.
 
-3. evaluate_selection_progressive_trigger -- a NON-blocking, per-selection sibling of
-   the realtime dwell trigger (1), scoring the running selection per variable and
-   firing on the single most extreme one (Shiyao's max-across-variables rule). Built
-   and unit-tested in isolation; NOT wired to any socket handler yet -- Sung's repeat
-   cooldown is still pending, and without it firing on every selection past the 5th
-   is unacceptable. Deliberately separate from evaluate_summary_trigger (2), which
-   stays the submit-time summary path unchanged.
+3. evaluate_selection_progressive_trigger -- a per-selection sibling of the realtime
+   dwell trigger (1), scoring the running selection per variable and firing on the
+   single most extreme one (Shiyao's max-across-variables rule). Deliberately
+   separate from evaluate_summary_trigger (2), which stays the submit-time summary
+   path unchanged. Wired live through evaluate_selection_trigger, which wraps it in
+   the pick-counted cooldown that keeps it from firing on every selection past
+   the 5th.
 
 This module reads from dc_metric (scoring) plus dc_adapter (the scoped-map
 reshape) and llm_intervention (get_current_axes); it modifies none of them.
@@ -51,6 +51,7 @@ DWELL_RECHECK_SECONDS = 10.0       # min extra dwell between two checks of the S
 # --------------------------------------------------------------------------- #
 MIN_SELECTIONS = 5                     # too few picks makes the mean DC meaningless
 SELECTION_PERCENTILE_THRESHOLD = 0.80  # fire when SelectionBias is at/above this percentile
+SELECTION_RECHECK_PICKS = 2            # extra picks between two selection-time fires
 
 def evaluate_trigger(client_record, dwell_metrics):
     """Decide whether to fire a realtime intervention, AND say why not.
@@ -262,16 +263,45 @@ def evaluate_summary_trigger(client_record, selection_metrics, selected_ids):
     return True, "ok"
 
 
+def evaluate_selection_trigger(client_record, selected_ids):
+    """The live mid-task decision: the progressive trigger behind a pick cooldown.
+
+    Thin wrapper over evaluate_selection_progressive_trigger (below), which owns
+    the readiness gate and the per-variable fire decision. This adds the one thing
+    it deliberately left out: SELECTION_RECHECK_PICKS additional picks must be made
+    after a fire before the next one can. Counted in picks for the same reason the
+    realtime gate counts dwell seconds -- the spacing has to be in the currency of
+    the behaviour that earns the intervention.
+
+    Returns the progressive trigger's dict unchanged; on cooldown, the same shape
+    as its not-ready case with a "cooldown (...)" reason.
+
+    Side effect on fire: records selection_last_fired_n so the cooldown above is
+    measured from the pick count that fired.
+    """
+    n_selected = len(set(selected_ids))
+    last_fired_n = client_record.get("selection_last_fired_n")
+    if last_fired_n is not None and n_selected - last_fired_n < SELECTION_RECHECK_PICKS:
+        return {"ready": False,
+                "reason": (f"cooldown ({n_selected - last_fired_n} < "
+                           f"{SELECTION_RECHECK_PICKS} picks since the last one)"),
+                "n_selected": n_selected,
+                "percentile_by_var": None}
+
+    result = evaluate_selection_progressive_trigger(client_record, selected_ids)
+    if result.get("fired"):
+        client_record["selection_last_fired_n"] = result["n_selected"]
+    return result
+
+
 # --------------------------------------------------------------------------- #
-# Progressive selection gate (BUILD-ONLY -- not wired live).
+# Progressive selection gate.
 #
 # A non-blocking, per-selection sibling of the realtime dwell trigger, scoring the
 # running selection instead of dwell and PER VARIABLE instead of pooled, firing on
-# the single most extreme variable (Shiyao's rule). It is intentionally NOT called
-# from on_selected_subjects or any other socket handler yet: Sung's repeat cooldown
-# is still pending, and without it this would fire on every selection past the 5th.
-# The emission wrapper it hands off to (llm_intervention.generate_selection_and_emit)
-# also exists but is likewise unwired.
+# the single most extreme variable (Shiyao's rule). Reached live only through
+# evaluate_selection_trigger above, whose pick-counted cooldown keeps it from
+# firing on every selection past the 5th.
 #
 # Deliberately separate from evaluate_summary_trigger above, which stays the
 # submit-time summary path exactly as it is.

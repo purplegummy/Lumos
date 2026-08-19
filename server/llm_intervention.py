@@ -64,6 +64,11 @@ SUPPORTED_VARIABLES = {
     "child_sex",                           # categorical, only two categories
 }
 SUMMARY_EVENT = "llm_summary"
+# Raised the moment the selection intervention fires and lowered when its message
+# (or the news that none is coming) arrives. Generation takes ~10s, long enough for
+# the participant to pick two or three more teens before seeing anything, so the
+# frontend holds selection closed for exactly that window.
+SELECTION_PENDING_EVENT = "llm_selection_pending"
 
 FALLBACK_SUMMARY = {
     "awareness_summary": "Thank you for completing the selections.",
@@ -816,8 +821,9 @@ async def generate_selection_and_emit(sio, sid_by_pid, pid, client_record,
     having been selected (as the summary path does), the per-variable scores come from
     the selection, and -- unlike the submit summary -- the phase and event are the
     REALTIME ones ("realtime" / "llm_intervention"), so this delivers a live nudge and
-    never blocks a submit. There is no fallback emit: like the realtime dwell path (and
-    unlike the summary), a failed or undelivered generation stays silent.
+    never blocks a submit. There is no fallback MESSAGE, but the pending state must
+    still end: the frontend has selection closed until it hears back, so a generation
+    that produced nothing has to say so.
 
     target_var is the variable the progressive trigger fired on (argmax of the
     per-variable selection percentiles). It is passed as force_variable, a HARD
@@ -825,11 +831,8 @@ async def generate_selection_and_emit(sio, sid_by_pid, pid, client_record,
     to that variable, unlike the realtime dwell path's soft top-3 axis preference.
     axes is None here: selection has no real axes, and force_variable fully replaces
     that lever. target_var is expected non-None (the caller only runs this on a fire).
-
-    Not wired to any handler yet (Sung's repeat cooldown is pending); called directly
-    only from its unit test for now.
     """
-    return await _generate_and_emit(
+    generated = await _generate_and_emit(
         sio, sid_by_pid, pid, client_record, teens,
         weights={teen_id: 1.0 for teen_id in selected_ids},
         attention={"selected_ids": selected_ids},
@@ -841,6 +844,13 @@ async def generate_selection_and_emit(sio, sid_by_pid, pid, client_record,
         # Hard-pin the message to the fired variable (not the soft axis steer).
         axes=None,
         force_variable=target_var)
+    if not generated:
+        room = live_room(sio, sid_by_pid, pid)
+        if room is not None:
+            await sio.emit(SELECTION_PENDING_EVENT, {"active": False}, room=room)
+        print(f"[LLM] {pid}: selection intervention produced nothing; "
+              f"selection released", flush=True)
+    return generated
 
 
 async def _generate_and_emit(sio, sid_by_pid, pid, client_record, teens,
