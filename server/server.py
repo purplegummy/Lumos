@@ -481,14 +481,20 @@ async def on_interaction(sid, data):
             client_record = CLIENTS[pid]
             teens = bias.DATA_MAP.get(app_mode, {}).get("data", {})
             _dwell = _out["dwell_bias"]
-            fired, reason, trace = llm_trigger.evaluate_trigger(client_record, _dwell)
+            # One wall-clock instant for this whole evaluation: fed to the system-wide
+            # cooldown gate inside evaluate_trigger AND (on fire) stored as
+            # llm_last_fired_at, so the next fire's cooldown is measured from exactly the
+            # moment we decided -- never two slightly different get_current_time() reads
+            # for what is meant to be the same instant.
+            now_ms = bias_util.get_current_time()
+            fired, reason, trace = llm_trigger.evaluate_trigger(client_record, _dwell, now_ms)
             # Persist the FULL trigger trace on every evaluation. Deliberately not
             # throttled like the reason-change console print below -- a complete
             # trace is what trigger-policy analysis needs.
             firebase_logger.save_logs(pid, [{
                 "kind": "dwell_trigger",
                 "participant_id": pid,
-                "created_at": bias_util.get_current_time(),
+                "created_at": now_ms,
                 "fired": fired,
                 "reason": reason,
                 "dwell_bias_percentile": trace["dwell_bias_percentile"],
@@ -496,7 +502,7 @@ async def on_interaction(sid, data):
                 "total_dwell_seconds": trace["total_dwell_seconds"],
             }])
             if fired:
-                client_record["llm_last_fired_at"] = bias_util.get_current_time()
+                client_record["llm_last_fired_at"] = now_ms
                 LLM_LAST_SKIP.pop(pid, None)
                 print(f"[LLM] {pid}: triggered (dwell_bias={_dwell.get('dwell_bias'):+.4f}, "
                       f"n_dwelled={_dwell.get('n_dwelled')})", flush=True)

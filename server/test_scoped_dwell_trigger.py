@@ -424,6 +424,89 @@ def main():
           fNO is False and rNO.startswith("scope_failed")
           and tNO["dwell_bias_percentile"] is None)
 
+    # ===================================================================== #
+    # SYSTEM-WIDE wall-clock cooldown: no two fires within SYSTEM_FIRE_COOLDOWN_MS of
+    # REAL time, layered ON TOP OF the per-variable recheck spacing. now_ms is passed
+    # explicitly for determinism (no sleeping, no mocking the clock).
+    # ===================================================================== #
+    print("\nsystem-wide wall-clock cooldown (30s real time between fires):")
+    SYS = llm_trigger.SYSTEM_FIRE_COOLDOWN_MS   # 30_000 ms
+    T0 = 1_000_000                              # an arbitrary epoch-ms "now"
+
+    def fireable(last_fired=None, checked=None):
+        """A record that WOULD fire on Map A (both a/b are pop MAX, 30s dwell), with an
+        optional prior-fire wall-clock and optional per-variable clocks."""
+        logs = hot_dwell("var_a", "var_b")      # 30s, axes var_a/var_b
+        rec = {"bias_logs": logs, "dc_map_detailed": mapA}
+        if last_fired is not None:
+            rec["llm_last_fired_at"] = last_fired
+        if checked is not None:
+            rec["dwell_last_checked_by_var"] = dict(checked)
+        return rec, dc_adapter.compute_dwell_metrics(mapA, logs)
+
+    # --- first call fires (no prior fire) -> the caller records llm_last_fired_at -----
+    recS, mS = fireable()
+    fS1, rS1, _ = llm_trigger.evaluate_trigger(recS, mS, T0)
+    check("first call fires (no llm_last_fired_at yet -> system gate not applied)",
+          fS1 is True and rS1 == "ok")
+    recS["llm_last_fired_at"] = T0                       # mirrors server.py on fire
+    checked_after_fire = dict(recS["dwell_last_checked_by_var"])
+    fired_vars_after_fire = list(recS["dwell_last_fired_vars"])
+
+    # --- a second call 10s later (< 30s) -> suppressed, and NO state mutated ----------
+    fS2, rS2, trS2 = llm_trigger.evaluate_trigger(recS, mS, T0 + 10_000)
+    print(f"    fired at T0, re-checked +10s -> fired={fS2} reason={rS2!r}")
+    check("within 30s of the last fire -> suppressed, reason 'system_cooldown'",
+          fS2 is False and rS2.startswith("system_cooldown"))
+    check("suppressed system-cooldown call did NOT advance dwell_last_checked_by_var",
+          recS["dwell_last_checked_by_var"] == checked_after_fire)
+    check("suppressed system-cooldown call did NOT change dwell_last_fired_vars",
+          recS["dwell_last_fired_vars"] == fired_vars_after_fire)
+    check("suppressed call still returns the trace shape (pct None, gate stopped short)",
+          trS2["dwell_bias_percentile"] is None)
+
+    # --- boundary: just under 30s suppresses; EXACTLY 30s and just past fire ----------
+    # Fresh records with a prior fire but NO per-variable clocks, so ONLY the system
+    # gate is in question. Boundary matches DWELL_RECHECK's ">= is ready": elapsed <
+    # cooldown suppresses, so exactly SYSTEM_FIRE_COOLDOWN_MS is allowed through.
+    recU, mU = fireable(last_fired=T0)
+    fU, rU, _ = llm_trigger.evaluate_trigger(recU, mU, T0 + SYS - 1)   # 29.999s
+    check("just under 30s (29999ms) -> suppressed",
+          fU is False and rU.startswith("system_cooldown"))
+    recE, mE = fireable(last_fired=T0)
+    fE, rE, _ = llm_trigger.evaluate_trigger(recE, mE, T0 + SYS)       # exactly 30.000s
+    check("exactly 30s (boundary inclusive, matches DWELL_RECHECK's >=) -> fires",
+          fE is True and rE == "ok")
+    recP, mP = fireable(last_fired=T0)
+    fP, rP, _ = llm_trigger.evaluate_trigger(recP, mP, T0 + SYS + 1)   # 30.001s
+    check("just past 30s -> fires",
+          fP is True and rP == "ok")
+
+    # --- now_ms supplied but NO prior fire -> gate not applied ------------------------
+    recN, mN = fireable()                                # no llm_last_fired_at key
+    fN, rN, _ = llm_trigger.evaluate_trigger(recN, mN, T0 + 5_000)
+    check("now_ms present but no prior fire this session -> not gated, fires",
+          fN is True and rN == "ok")
+
+    # --- LAYERED on top of per-variable spacing: a var whose OWN clock is ready is
+    # still suppressed while the system gate cools, and its clock is left untouched -----
+    recL, mL = fireable(last_fired=T0, checked={"var_a": 25.0})  # var_a cooling; var_b ready
+    checked_before = dict(recL["dwell_last_checked_by_var"])
+    fL, rL, trL = llm_trigger.evaluate_trigger(recL, mL, T0 + 10_000)   # system still cooling
+    print(f"    var_b per-var-ready but system cooling +10s -> fired={fL} reason={rL!r}")
+    check("per-variable clock says var_b is ready, but the SYSTEM gate is cooling "
+          "-> suppressed (layered on top of, not replaced by, per-variable spacing)",
+          fL is False and rL.startswith("system_cooldown"))
+    check("system-suppressed call left the per-variable clocks untouched (var_b NOT advanced)",
+          recL["dwell_last_checked_by_var"] == checked_before
+          and "dwell_last_fired_vars" not in recL)
+    # Contrast: once 30s of REAL time passes, the SAME record fires -- the per-variable
+    # spacing still governs WHICH var is checked (var_a cooling -> scope {var_b}).
+    fL2, rL2, _ = llm_trigger.evaluate_trigger(recL, mL, T0 + SYS)
+    check("after 30s the system gate clears -> fires, per-variable spacing still governs "
+          "(checks var_b only, records it)",
+          fL2 is True and rL2 == "ok" and recL["dwell_last_fired_vars"] == ["var_b"])
+
     print("\n" + "=" * 72)
     print(f"{'ALL CHECKS PASSED' if failures == 0 else str(failures) + ' CHECK(S) FAILED'}")
     print("=" * 72)

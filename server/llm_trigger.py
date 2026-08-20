@@ -44,6 +44,9 @@ MIN_UNIQUE_HOVERS = 5              # distinct teens the participant lingered on
 MIN_TOTAL_DWELL_SECONDS = 20.0     # total hover time before we score at all
 DWELL_PERCENTILE_THRESHOLD = 0.80  # fire when DwellBias is at/above this percentile
 DWELL_RECHECK_SECONDS = 10.0       # min extra dwell between two checks of the SAME axis var
+SYSTEM_FIRE_COOLDOWN_MS = 30_000   # min REAL (wall-clock) time between any two fired
+                                   # interventions, layered on top of the per-variable
+                                   # recheck spacing above (Shiyao's system-wide cooldown)
 
 # --------------------------------------------------------------------------- #
 # Selection gate -- scored on the participant's RUNNING SELECTION rather than on
@@ -54,14 +57,14 @@ MIN_SELECTIONS = 5                     # too few picks makes the mean DC meaning
 SELECTION_PERCENTILE_THRESHOLD = 0.80  # fire when SelectionBias is at/above this percentile
 SELECTION_RECHECK_PICKS = 2            # extra picks between two selection-time fires
 
-def evaluate_trigger(client_record, dwell_metrics):
+def evaluate_trigger(client_record, dwell_metrics, now_ms=None):
     """Decide whether to fire a realtime intervention, AND say why not.
 
     Returns (fired, reason, trace):
       * fired  -- bool.
       * reason -- a short code so a server log makes it obvious which condition
-        blocked it: "ok" | "no_dwell_bias" | "not_ready" | "too_soon" |
-        "no_visible_axes" | "scope_failed (...)" | "below_percentile".
+        blocked it: "ok" | "no_dwell_bias" | "not_ready" | "system_cooldown (...)" |
+        "too_soon" | "no_visible_axes" | "scope_failed (...)" | "below_percentile".
       * trace  -- {"dwell_bias_percentile", "n_dwelled", "total_dwell_seconds"},
         the diagnostic values behind the decision (persisted on every call for
         trigger-policy analysis). dwell_bias_percentile here is scoped to the
@@ -71,14 +74,23 @@ def evaluate_trigger(client_record, dwell_metrics):
 
     Policy: enough attention to score (>= MIN_TOTAL_DWELL_SECONDS of dwell AND
     >= MIN_UNIQUE_HOVERS distinct teens -- a GLOBAL, variable-agnostic readiness
-    gate), then a PER-VARIABLE recheck gate: each currently-visible axis variable
-    is rechecked no more than once per DWELL_RECHECK_SECONDS of additional (global)
-    dwell since THAT variable was last checked, so one axis cooling down never
+    gate), then a SYSTEM-WIDE wall-clock cooldown (>= SYSTEM_FIRE_COOLDOWN_MS of REAL
+    time since the last fire), then a PER-VARIABLE recheck gate: each currently-visible
+    axis variable is rechecked no more than once per DWELL_RECHECK_SECONDS of additional
+    (global) dwell since THAT variable was last checked, so one axis cooling down never
     blocks the other. The DwellBias is then SCOPED to the visible variables that
     are off cooldown and scored against its null (dc_metric.dwell_bias_percentile);
     it fires at or above DWELL_PERCENTILE_THRESHOLD. The raw score's sign is NOT
     gated: a high enough percentile fires even when DwellBias is negative (the
     positive-score requirement was removed in pilot round 2).
+
+    System cooldown vs per-variable spacing: these are two DIFFERENT clocks, layered.
+    The per-variable gate below counts ACCUMULATED DWELL (only advances while hovering);
+    this system gate counts REAL elapsed time (now_ms - llm_last_fired_at), so it also
+    covers the participant reading the panel. It is placed BEFORE any scoping/scoring so
+    a suppressed check does no work and -- critically -- mutates NO cooldown state:
+    dwell_last_checked_by_var and dwell_last_fired_vars are left exactly as if scoring
+    never ran, so nothing "earns" toward the next fire while cooling.
 
     Side effect: records dwell_last_checked_by_var[v] on client_record for each
     variable v actually rechecked this call (not only on fire), so rechecks are
@@ -88,9 +100,13 @@ def evaluate_trigger(client_record, dwell_metrics):
     llm_last_fired_at.
 
     client_record: the CLIENTS[pid] dict (reads bias_logs / dc_map_detailed /
-                   dwell_last_checked_by_var).
+                   dwell_last_checked_by_var / llm_last_fired_at).
     dwell_metrics: the dict from dc_adapter.compute_dwell_metrics, i.e.
                    {"dwell_bias", "dwell_bias_v", "n_dwelled"}.
+    now_ms:        current wall-clock time in epoch ms (bias_util.get_current_time()'s
+                   unit), passed in by the caller so this module imports no clock and
+                   its tests stay deterministic. None (no clock supplied) skips the
+                   system-cooldown gate entirely -- the live path always passes it.
     """
     dwell = dc_metric.dwell_by_teen(client_record.get("bias_logs", []))
     total_dwell_seconds = sum(dwell.values()) / 1000.0  # dwell_by_teen sums ms
@@ -109,6 +125,20 @@ def evaluate_trigger(client_record, dwell_metrics):
     if total_dwell_seconds < MIN_TOTAL_DWELL_SECONDS or n_dwelled < MIN_UNIQUE_HOVERS:
         return False, (f"not_ready ({total_dwell_seconds:.1f}s/{MIN_TOTAL_DWELL_SECONDS}s, "
                        f"{n_dwelled}/{MIN_UNIQUE_HOVERS} teens)"), trace
+
+    # --- SYSTEM-WIDE wall-clock cooldown: no two fires within SYSTEM_FIRE_COOLDOWN_MS
+    # of REAL time. Placed here (after readiness, before ANY scoping/scoring) so a
+    # suppressed check does no work and touches NO cooldown state -- dwell_last_checked_
+    # by_var / dwell_last_fired_vars stay exactly as if scoring never ran. Skipped when
+    # no clock is supplied (now_ms is None) or there has been no fire yet this session.
+    # The boundary matches DWELL_RECHECK's ">= is ready": elapsed < cooldown suppresses,
+    # so at EXACTLY SYSTEM_FIRE_COOLDOWN_MS it is allowed through.
+    last_fired = client_record.get("llm_last_fired_at")
+    if now_ms is not None and last_fired is not None:
+        elapsed_ms = now_ms - last_fired
+        if elapsed_ms < SYSTEM_FIRE_COOLDOWN_MS:
+            return False, (f"system_cooldown ({elapsed_ms / 1000.0:.1f}s < "
+                           f"{SYSTEM_FIRE_COOLDOWN_MS / 1000.0:.0f}s since last fire)"), trace
 
     # --- resolve the CURRENTLY ACTIVE variables ONCE: the x/y axis attributes PLUS
     # any attribute with an active filter (Shiyao's request), shared by the recheck
@@ -194,14 +224,15 @@ def _scoped_dwell_percentile(client_record, dwell, scope_vars):
     return pct, observed, None
 
 
-def should_trigger(client_record, dwell_metrics):
+def should_trigger(client_record, dwell_metrics, now_ms=None):
     """Whether to fire an intervention for this interaction (bool only).
 
     Thin wrapper over evaluate_trigger, kept so the swap-in point for the real
     percentile test has a stable, reason-free signature. Callers that want to
-    log WHY it did not fire call evaluate_trigger directly.
+    log WHY it did not fire call evaluate_trigger directly. now_ms is threaded
+    through so this wrapper honours the same system-wide cooldown.
     """
-    fired, _reason, _trace = evaluate_trigger(client_record, dwell_metrics)
+    fired, _reason, _trace = evaluate_trigger(client_record, dwell_metrics, now_ms)
     return fired
 
 
