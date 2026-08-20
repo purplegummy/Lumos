@@ -345,7 +345,8 @@ async def on_task_submitted(sid, data):
         dc_map_cached = client.get("dc_map") if client else None
         if dc_map_cached:
             try:
-                pct = dc_adapter.compute_selection_percentile(dc_map_cached, subjects)
+                pct = dc_adapter.compute_selection_percentile(
+                    dc_map_cached, subjects, rng=dc_adapter.live_rng())
                 print(f"[SEL%] pid={pid} | "
                       f"selection_bias_percentile={pct['selection_bias_percentile']} "
                       f"(n_selected={len(subjects)})", flush=True)

@@ -168,8 +168,11 @@ def evaluate_trigger(client_record, dwell_metrics, now_ms=None):
     # Score on just the visible variables that are off cooldown (the pooled six-
     # belief DC is never used). A cooling variable is left out of the scope even
     # though it is on screen, so its attention neither earns nor blocks a fire.
+    # A FRESH seeded generator for this evaluation's one null-sampling call, so the
+    # percentile is reproducible from its inputs alone (default_rng(SEED) is identical
+    # regardless of when in the call it is built -- it consumes no prior state).
     pct, scoped_observed, scope_reason = _scoped_dwell_percentile(
-        client_record, dwell, ready_vars)
+        client_record, dwell, ready_vars, dc_adapter.live_rng())
     trace["dwell_bias_percentile"] = pct
     if scope_reason is not None:
         return False, scope_reason, trace
@@ -189,7 +192,7 @@ def evaluate_trigger(client_record, dwell_metrics, now_ms=None):
     return True, "ok", trace
 
 
-def _scoped_dwell_percentile(client_record, dwell, scope_vars):
+def _scoped_dwell_percentile(client_record, dwell, scope_vars, rng=None):
     """Scoped DwellBias percentile + its scoped observed value + a not-ready reason,
     computed over scope_vars only. -> (pct, observed, reason).
 
@@ -209,7 +212,9 @@ def _scoped_dwell_percentile(client_record, dwell, scope_vars):
     off cooldown (Nones/dupes already dropped). Only the per-teen DC is re-pooled
     over them; the dwell weights (per teen) are untouched, so this stays the point-
     level DwellBias null test on a scoped score. The scoped map is built ONCE and
-    feeds both outputs. rng is left default (global np.random), matching live.
+    feeds both outputs. rng is the seeded generator the caller builds per evaluation
+    (dc_adapter.live_rng()) so the null draw is reproducible; None falls back to the
+    global np.random state (used by unseeded unit tests).
     """
     try:
         scoped = dc_adapter.scoped_detailed_map(
@@ -219,7 +224,7 @@ def _scoped_dwell_percentile(client_record, dwell, scope_vars):
         return None, None, f"scope_failed ({e})"
     # One scoped map feeds both the null-distribution percentile and the observed
     # DwellBias it is scored against (dwell_bias is a cheap re-read, no sampling).
-    pct = dc_metric.dwell_bias_percentile(scoped, dwell)
+    pct = dc_metric.dwell_bias_percentile(scoped, dwell, rng=rng)
     observed = dc_metric.dwell_bias(scoped, dwell)
     return pct, observed, None
 
@@ -402,8 +407,14 @@ def evaluate_selection_progressive_trigger(client_record, selected_ids):
                 "n_selected": n_selected,
                 "percentile_by_var": None}
 
+    # One fresh seeded generator for this whole evaluation, threaded through
+    # selection_percentile_by_var's per-variable loop (it advances this single
+    # generator, so each variable draws an independent, non-repeating null while the
+    # check stays reproducible). Built ONCE here -- never per variable -- so the
+    # variables do not replay an identical null distribution.
     percentile_by_var = dc_adapter.selection_percentile_by_var(
-        client_record["dc_map_detailed"], selected_ids, variables=active_vars)
+        client_record["dc_map_detailed"], selected_ids, variables=active_vars,
+        rng=dc_adapter.live_rng())
 
     # --- Shiyao's PRIORITY HIERARCHY: THRESHOLD FIRST, then rank -----------------
     # Candidate set = every scored variable that CLEARS the threshold (percentile not

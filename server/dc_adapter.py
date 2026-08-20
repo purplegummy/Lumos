@@ -25,12 +25,39 @@ dc_metric expects, per variable, ONE contract object:
 build_beliefs_from_priors() performs that reshape. See its docstring for the
 completeness guard (d) and the shared-bins assertion (e).
 """
+import numpy as np
+
 import dc_metric
 
 # The diagnosis column is the y_d LABEL, never an elicited belief. Reuse the
 # constant from dc_metric (do not duplicate the literal). Even if the modal
 # elicits it, it must be excluded from beliefs and from the completeness count.
 LABEL_ATTR = dc_metric.LABEL_ATTR
+
+# --------------------------------------------------------------------------- #
+# Reproducible seeding for the LIVE Monte-Carlo null-sampling paths (Shiyao's
+# request). A single fixed seed, single-sourced here and shared by every live call
+# site, so a given check's percentile depends ONLY on its inputs + this seed --
+# never on call order or how many draws happened earlier in the session. This is a
+# reproducibility knob, NOT a replay/audit-log feature: the seed is a constant, not
+# logged per check.
+# --------------------------------------------------------------------------- #
+LIVE_SIMULATION_SEED = 20260820
+
+
+def live_rng():
+    """A fresh, seeded numpy Generator for the live null-sampling paths.
+
+    Construct exactly ONE per top-level evaluation (one evaluate_trigger, one
+    evaluate_selection_progressive_trigger, one submit-time percentile) and thread
+    that single generator through everything inside it -- e.g. selection_percentile_
+    by_var's per-variable loop advances THIS generator, so variables get independent,
+    non-repeating draws while the whole check stays reproducible. Do NOT call this
+    per variable inside a loop: that would reset the stream and make every variable
+    replay an identical null distribution (spurious correlation).
+    """
+    return np.random.default_rng(LIVE_SIMULATION_SEED)
+
 
 # The study elicits exactly six NON-LABEL variables; the DC map is only computed
 # once all six have BOTH conditions. (Count-based so we don't hard-code the
