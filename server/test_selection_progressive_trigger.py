@@ -16,8 +16,8 @@ Covers the build-only pieces (none wired live):
     tested by capturing the intervention inputs it threads into the shared core.
 
 Mirrors test_scoped_dwell_trigger.py's pattern (a nonlocal `check`, pure asserts +
-prints, exits non-zero on failure). It does NOT touch evaluate_summary_trigger, the
-submit-time summary path, dc_metric, or any existing test.
+prints, exits non-zero on failure). It does NOT touch the dwell trigger, dc_metric,
+or any existing test.
 """
 import asyncio
 
@@ -258,9 +258,9 @@ def main():
           captured["bias_v"] == selection["selection_bias_v"])
     check("phase = 'realtime' (non-blocking nudge, NOT a submit-time check)",
           captured["phase"] == "realtime")
-    check("event = 'llm_intervention' (the realtime event, NOT SUMMARY_EVENT)",
+    check("event = 'llm_intervention' (the realtime event, not the old summary one)",
           captured["event"] == "llm_intervention"
-          and captured["event"] != llm_intervention.SUMMARY_EVENT)
+          and captured["event"] != "llm_summary")
     check("target_var threaded as force_variable (hard override, not axes)",
           captured["force_variable"] == target_var)
     check("axes is None for the selection path (force_variable replaces the steer)",

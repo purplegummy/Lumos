@@ -108,15 +108,6 @@ export class ChatService {
       .pipe(map((obj) => obj));
   }
 
-  getLlmSummary() {
-    return this.vizSocket.fromEvent("llm_summary").pipe(map((obj) => obj));
-  }
-
-  requestLlmSummary(payload) {
-    if (this.tutorialMode) return;
-    this.vizSocket.emit("on_llm_summary_request", payload);
-  }
-
   sendLlmDismissed(payload) {
     if (this.tutorialMode) return;
     this.vizSocket.emit("on_llm_dismissed", payload);
