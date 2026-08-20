@@ -403,8 +403,9 @@ def scoped_detailed_map(dc_map_detailed, visible_vars):
     return scoped
 
 
-def selection_percentile_by_var(dc_map_detailed, selected_ids, n_trials=1000, rng=None):
-    """SelectionBias percentile for EVERY belief variable, one variable at a time.
+def selection_percentile_by_var(dc_map_detailed, selected_ids, n_trials=1000,
+                                rng=None, variables=None):
+    """SelectionBias percentile per belief variable, one variable at a time.
 
     Selection has no axes to scope to (unlike the dwell trigger), so instead of one
     pooled score this reports, per variable, how extreme the selection looks when DC
@@ -421,22 +422,40 @@ def selection_percentile_by_var(dc_map_detailed, selected_ids, n_trials=1000, rn
         n_trials: null draws per variable (passed straight through, never reduced).
         rng: numpy Generator for reproducible tests, or None for the np.random
             global (the live default), matching selection_bias_percentile.
+        variables: optional collection restricting WHICH variables are scored. None
+            (the default) preserves the original behavior -- score EVERY belief
+            variable in the map. When given, only the intersection with the map's
+            actual belief variables is scored (order follows the map, so results stay
+            deterministic); any name not a belief variable is dropped, and the null-
+            sampling is SKIPPED entirely for excluded variables -- not scored then
+            filtered -- so scoping to the active set is a real compute saving. An
+            empty intersection yields {} (the caller's reduction treats that as
+            nothing-to-fire, matching a total miss).
 
     Returns:
-        {variable: percentile} over ALL belief variables in the map. Each percentile
-        is in [0, 1], or None for the k == 0 case selection_bias_percentile already
-        guards (nothing selected is present in the map -- identical across variables,
-        since scoping changes each teen's DC but not which teens exist). {} for an
-        empty map.
+        {variable: percentile} over the scored variables (all belief variables when
+        variables is None, else the active intersection). Each percentile is in
+        [0, 1], or None for the k == 0 case selection_bias_percentile already guards
+        (nothing selected is present in the map -- identical across variables, since
+        scoping changes each teen's DC but not which teens exist). {} for an empty
+        map, or for an empty variables intersection.
 
-    The variable list is read the same way dwell_bias_v reads it (the consistency
-    keys of any entry), so the two stay in lockstep on what "all variables" means.
+    The belief-variable list is read the same way dwell_bias_v reads it (the
+    consistency keys of any entry), so the two stay in lockstep on what "all
+    variables" means; `variables` only narrows that set, never widens it.
     """
     if not dc_map_detailed:
         return {}
-    variables = list(next(iter(dc_map_detailed.values()))["consistency"].keys())
+    belief_vars = list(next(iter(dc_map_detailed.values()))["consistency"].keys())
+    if variables is None:
+        scored_vars = belief_vars
+    else:
+        # Intersect while preserving the map's deterministic variable order; drop any
+        # requested name that is not a belief variable (e.g. a non-belief filter attr).
+        wanted = set(variables)
+        scored_vars = [v for v in belief_vars if v in wanted]
     out = {}
-    for v in variables:
+    for v in scored_vars:
         scoped = scoped_detailed_map(dc_map_detailed, [v])
         scalar_dc = {tid: entry["dc"] for tid, entry in scoped.items()}
         out[v] = dc_metric.selection_bias_percentile(

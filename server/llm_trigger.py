@@ -14,14 +14,21 @@ when the trigger policy does:
    beliefs pooled, and one axis cooling down never blocks the other. should_trigger
    is a thin bool wrapper for callers that don't need the reason.
 
-2. evaluate_selection_progressive_trigger -- a per-selection sibling of the realtime
-   dwell trigger (1), scoring the running selection per variable and firing on the
-   single most extreme one (Shiyao's max-across-variables rule). Wired live through
-   evaluate_selection_trigger, which wraps it in the pick-counted cooldown that
-   keeps it from firing on every selection past the 5th.
+2. evaluate_selection_trigger -- the live mid-task decision: the progressive trigger
+   (3) behind a pick-counted cooldown (SELECTION_RECHECK_PICKS) that keeps it from
+   firing on every selection past the 5th.
 
-This module reads from dc_metric (scoring) plus dc_adapter (the scoped-map
-reshape) and llm_intervention (get_current_axes); it modifies none of them.
+3. evaluate_selection_progressive_trigger -- a per-selection sibling of the realtime
+   dwell trigger (1), scoring the running selection per variable and firing on the
+   single most extreme one (Shiyao's max-across-variables rule). The scoring is
+   SCOPED to the currently-active variables (x/y axes + active filters, via
+   llm_intervention.get_currently_active_variables) -- the same active set the dwell
+   trigger uses -- so a variable the participant is not looking at or filtering on
+   neither earns nor blocks a fire. Reached live only through evaluate_selection_trigger (2).
+
+This module reads from dc_metric (scoring) plus dc_adapter (the scoped-map reshape)
+and llm_intervention (get_current_axes / get_currently_active_variables); it modifies
+none of them.
 """
 import dc_adapter
 import dc_metric
@@ -267,12 +274,13 @@ def evaluate_selection_progressive_trigger(client_record, selected_ids):
     """Per-variable selection-bias fire decision for the running selection.
 
     Sibling of evaluate_trigger (the realtime dwell gate) in shape -- a readiness
-    gate first, then the scoped scoring -- but scored on the SELECTION and across
-    ALL belief variables, since selection has no axes to scope to.
+    gate first, then the scoped scoring -- and, like it, scored only on the CURRENTLY
+    ACTIVE variables (see SCOPE below), but on the SELECTION rather than dwell.
 
-    Returns a dict. Below readiness:
-      {"ready": False, "reason": "not_ready (...)", "n_selected", "percentile_by_var": None}
-    At/above readiness:
+    Returns a dict. Below readiness / no active variables:
+      {"ready": False, "reason": "not_ready (...)" | "no_active_vars",
+       "n_selected", "percentile_by_var": None}
+    At/above readiness with an active variable set:
       {"ready":             True,
        "reason":            "ok",
        "fired":             bool,
@@ -281,6 +289,14 @@ def evaluate_selection_progressive_trigger(client_record, selected_ids):
        "n_selected":        int,                # unique selected ids
        "percentile_by_var": {variable: percentile}}   # full dict, for logging
 
+    SCOPE (Shiyao's rule, mirroring the dwell trigger): only the CURRENTLY ACTIVE
+    variables are scored -- the x/y axis attributes plus any attribute with an active
+    filter (llm_intervention.get_currently_active_variables, the same combiner the
+    dwell trigger scopes on). The pre-scoping behavior scored every belief variable;
+    now a variable the participant is not looking at or filtering on can neither earn
+    nor block a fire. An empty active set is treated like dwell's no_visible_axes
+    guard: not-ready, no scoring attempted.
+
     Reduction (Shiyao's rule): fire on the single MOST extreme variable. Take the
     max over the per-variable percentiles; if it is >= SELECTION_PERCENTILE_THRESHOLD
     the trigger fires with target_var = that argmax variable and target_percentile =
@@ -288,11 +304,15 @@ def evaluate_selection_progressive_trigger(client_record, selected_ids):
     target_percentile are None -- percentile_by_var is still returned in full so a
     log can show how close it got. Variables whose percentile is None (nothing
     selected present in the map -- uniform across variables) are excluded from the max.
+    A total miss (active vars present but none are belief variables) yields an empty
+    percentile_by_var via the intersection in selection_percentile_by_var, which the
+    same reduction handles as fired=False -- no separate error path.
 
     Readiness: n_selected >= MIN_SELECTIONS, which is what makes this "start at
     the 5th selection."
 
-    client_record: the CLIENTS[pid] dict (reads dc_map_detailed).
+    client_record: the CLIENTS[pid] dict (reads dc_map_detailed, plus bias_logs /
+                   response_list via get_currently_active_variables).
     selected_ids:  the participant's currently-selected teen ids.
     """
     n_selected = len(set(selected_ids))
@@ -302,8 +322,18 @@ def evaluate_selection_progressive_trigger(client_record, selected_ids):
                 "n_selected": n_selected,
                 "percentile_by_var": None}
 
+    # Resolve the currently-active variables ONCE (axes + active filters), the same
+    # set the dwell trigger scopes on. Empty -> nothing to score, so guard exactly
+    # like dwell's no_visible_axes and do not attempt the (expensive) null-sampling.
+    active_vars = llm_intervention.get_currently_active_variables(client_record)
+    if not active_vars:
+        return {"ready": False,
+                "reason": "no_active_vars",
+                "n_selected": n_selected,
+                "percentile_by_var": None}
+
     percentile_by_var = dc_adapter.selection_percentile_by_var(
-        client_record["dc_map_detailed"], selected_ids)
+        client_record["dc_map_detailed"], selected_ids, variables=active_vars)
 
     # Reduce across variables: fire on the single most extreme one. Only variables
     # with a computed percentile are eligible for the max (None = nothing selected
