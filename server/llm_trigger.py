@@ -261,6 +261,29 @@ def evaluate_selection_trigger(client_record, selected_ids):
     return result
 
 
+def _confidence_for_var(client_record, var):
+    """The elicited confidence (1-100) for a belief variable, for the priority tiebreak.
+
+    Read straight from the cached, reshaped beliefs
+    (client_record["beliefs"][var]["countsByGroup"]["diagnosed"]["confidence"]);
+    beliefs is only ever populated alongside dc_map_detailed (server.maybe_compute_dc_map),
+    and is already scoped to the six complete belief variables -- exactly the pool a
+    candidate variable comes from -- so this is a safe direct read. Both conditions
+    carry the SAME slider value (one confidence per variable), so "diagnosed" is
+    representative.
+
+    Missing/None (legacy priors saved before the confidence step, or beliefs not yet
+    built) -> 0, a sentinel below the real 1-100 range so the variable sorts LAST
+    within its tier without being dropped from candidacy. Never raises.
+    """
+    try:
+        conf = (client_record.get("beliefs", {})[var]
+                ["countsByGroup"]["diagnosed"]["confidence"])
+        return 0.0 if conf is None else float(conf)
+    except (KeyError, TypeError, ValueError):
+        return 0.0
+
+
 # --------------------------------------------------------------------------- #
 # Progressive selection gate.
 #
@@ -284,35 +307,46 @@ def evaluate_selection_progressive_trigger(client_record, selected_ids):
       {"ready":             True,
        "reason":            "ok",
        "fired":             bool,
-       "target_var":        variable | None,   # the argmax variable, only on a fire
+       "target_var":        variable | None,   # the winning variable, only on a fire
        "target_percentile": float | None,      # its percentile, only on a fire
        "n_selected":        int,                # unique selected ids
        "percentile_by_var": {variable: percentile}}   # full dict, for logging
 
     SCOPE (Shiyao's rule, mirroring the dwell trigger): only the CURRENTLY ACTIVE
     variables are scored -- the x/y axis attributes plus any attribute with an active
-    filter (llm_intervention.get_currently_active_variables, the same combiner the
-    dwell trigger scopes on). The pre-scoping behavior scored every belief variable;
-    now a variable the participant is not looking at or filtering on can neither earn
-    nor block a fire. An empty active set is treated like dwell's no_visible_axes
-    guard: not-ready, no scoring attempted.
+    filter (get_current_axes | get_current_filters, the same active set the dwell
+    trigger scopes on). The pre-scoping behavior scored every belief variable; now a
+    variable the participant is not looking at or filtering on can neither earn nor
+    block a fire. An empty active set is treated like dwell's no_visible_axes guard:
+    not-ready, no scoring attempted.
 
-    Reduction (Shiyao's rule): fire on the single MOST extreme variable. Take the
-    max over the per-variable percentiles; if it is >= SELECTION_PERCENTILE_THRESHOLD
-    the trigger fires with target_var = that argmax variable and target_percentile =
-    its value. If nothing clears (or nothing scored), fired is False and target_var /
-    target_percentile are None -- percentile_by_var is still returned in full so a
-    log can show how close it got. Variables whose percentile is None (nothing
-    selected present in the map -- uniform across variables) are excluded from the max.
-    A total miss (active vars present but none are belief variables) yields an empty
-    percentile_by_var via the intersection in selection_percentile_by_var, which the
-    same reduction handles as fired=False -- no separate error path.
+    Reduction (Shiyao's PRIORITY HIERARCHY): THRESHOLD FIRST, THEN RANK. Build the
+    candidate set from every variable whose percentile is not None AND is at/above
+    SELECTION_PERCENTILE_THRESHOLD -- do NOT take a global max and threshold only the
+    winner, or a high-percentile filter variable could shadow a lower-percentile axis
+    variable that also cleared. Among the candidates, pick the winner by, in order:
+      1. tier -- AXIS variables (on x/y) beat FILTER-only variables. A variable that
+         is both on an axis and filtered counts as axis (axis membership wins).
+      2. confidence -- higher elicited confidence (1-100, per variable) wins within a
+         tier. Missing confidence (legacy data) sorts last within its tier, but the
+         variable is still a candidate.
+      3. percentile -- higher SelectionBias_v percentile wins when tier and confidence
+         tie.
+      4. variable name -- ascending, a deterministic final fallback so a full tie
+         (same tier, confidence, and percentile) always resolves the same way.
+    fired = the candidate set is non-empty; target_var / target_percentile name the
+    winner (or None/None when nothing cleared). percentile_by_var is always returned
+    in full so a log can show how close it got. Variables whose percentile is None
+    (nothing selected present in the map -- uniform across variables) never enter the
+    candidate set. A total miss (active vars present but none are belief variables)
+    yields an empty percentile_by_var via the intersection in
+    selection_percentile_by_var, which reduces to fired=False -- no separate path.
 
     Readiness: n_selected >= MIN_SELECTIONS, which is what makes this "start at
     the 5th selection."
 
-    client_record: the CLIENTS[pid] dict (reads dc_map_detailed, plus bias_logs /
-                   response_list via get_currently_active_variables).
+    client_record: the CLIENTS[pid] dict (reads dc_map_detailed and beliefs, plus
+                   bias_logs / response_list via get_current_axes / get_current_filters).
     selected_ids:  the participant's currently-selected teen ids.
     """
     n_selected = len(set(selected_ids))
@@ -322,10 +356,15 @@ def evaluate_selection_progressive_trigger(client_record, selected_ids):
                 "n_selected": n_selected,
                 "percentile_by_var": None}
 
-    # Resolve the currently-active variables ONCE (axes + active filters), the same
-    # set the dwell trigger scopes on. Empty -> nothing to score, so guard exactly
-    # like dwell's no_visible_axes and do not attempt the (expensive) null-sampling.
-    active_vars = llm_intervention.get_currently_active_variables(client_record)
+    # Resolve the currently-active variables (axes + active filters), the same set the
+    # dwell trigger scopes on. Kept as TWO sets, not just their union, so each candidate
+    # can be classified into a tier below (axis membership takes priority). Empty union
+    # -> nothing to score, so guard exactly like dwell's no_visible_axes and do not
+    # attempt the (expensive) null-sampling.
+    axes = llm_intervention.get_current_axes(client_record)
+    axis_vars = {v for v in (axes.get("x"), axes.get("y")) if v is not None}
+    filter_vars = llm_intervention.get_current_filters(client_record)
+    active_vars = axis_vars | filter_vars
     if not active_vars:
         return {"ready": False,
                 "reason": "no_active_vars",
@@ -335,19 +374,30 @@ def evaluate_selection_progressive_trigger(client_record, selected_ids):
     percentile_by_var = dc_adapter.selection_percentile_by_var(
         client_record["dc_map_detailed"], selected_ids, variables=active_vars)
 
-    # Reduce across variables: fire on the single most extreme one. Only variables
-    # with a computed percentile are eligible for the max (None = nothing selected
-    # present in the map for that scope, uniform across variables).
-    scored = {v: p for v, p in percentile_by_var.items() if p is not None}
-    argmax_var = max(scored, key=scored.get) if scored else None
-    max_pct = scored[argmax_var] if argmax_var is not None else None
-    fired = max_pct is not None and max_pct >= SELECTION_PERCENTILE_THRESHOLD
+    # --- Shiyao's PRIORITY HIERARCHY: THRESHOLD FIRST, then rank -----------------
+    # Candidate set = every scored variable that CLEARS the threshold (percentile not
+    # None and >= SELECTION_PERCENTILE_THRESHOLD). Built before any tier/confidence/
+    # percentile comparison so a lower-percentile axis variable that clears can still
+    # beat a higher-percentile filter variable that also clears -- the whole point.
+    candidates = [v for v, p in percentile_by_var.items()
+                  if p is not None and p >= SELECTION_PERCENTILE_THRESHOLD]
+
+    def _priority(v):
+        # Sort ASCENDING: axis tier (0) before filter tier (1); then negate the
+        # descending keys (confidence, percentile) so higher wins; variable name last,
+        # ascending, as the deterministic final tiebreak.
+        tier = 0 if v in axis_vars else 1        # axis membership wins over filter-only
+        confidence = _confidence_for_var(client_record, v)
+        return (tier, -confidence, -percentile_by_var[v], v)
+
+    winner = min(candidates, key=_priority) if candidates else None
+    fired = winner is not None
 
     return {"ready": True,
             "reason": "ok",
             "fired": fired,
             # Name a target only on a fire; percentile_by_var carries the rest.
-            "target_var": argmax_var if fired else None,
-            "target_percentile": max_pct if fired else None,
+            "target_var": winner,
+            "target_percentile": percentile_by_var[winner] if fired else None,
             "n_selected": n_selected,
             "percentile_by_var": percentile_by_var}

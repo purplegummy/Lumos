@@ -10,8 +10,10 @@ Covers the build-only pieces (none wired live):
     over EVERY belief variable (selection has no axes to scope to), by reusing
     scoped_detailed_map([v]) + the unchanged dc_metric.selection_bias_percentile.
   * llm_trigger.evaluate_selection_progressive_trigger -- readiness gate
-    (n_selected >= MIN_SELECTIONS) then Shiyao's reduction: fire on the single most
-    extreme variable (max percentile >= threshold), reporting target_var.
+    (n_selected >= MIN_SELECTIONS) then Shiyao's PRIORITY HIERARCHY: threshold the
+    per-variable percentiles at SELECTION_PERCENTILE_THRESHOLD FIRST, then among the
+    crossers rank by tier (axis > filter), confidence, percentile, and finally
+    variable name; the winner is target_var.
   * llm_intervention.generate_selection_and_emit -- the non-blocking emission wrapper,
     tested by capturing the intervention inputs it threads into the shared core.
 
@@ -231,75 +233,149 @@ def main():
               rec, just_under)["ready"] is False)
 
     # ===================================================================== #
-    # Fire decision (Shiyao's reduction): fire on the single most extreme var.
-    # The per-variable percentiles are stubbed here so the REDUCTION is tested
-    # deterministically -- the real percentile computation is already verified
-    # above against real maps (exact composition), so these two layers are
-    # covered independently.
+    # Fire decision (Shiyao's PRIORITY HIERARCHY): threshold FIRST, then rank by
+    # tier (axis > filter) -> confidence -> percentile -> variable name. The per-
+    # variable percentiles are stubbed so the reduction is tested deterministically;
+    # the record's axes/filters/beliefs set each variable's tier and confidence.
+    # (The real percentile computation is verified above against real maps.)
     # ===================================================================== #
-    print("\nfire decision -- max-across-variables reduction:")
+    print("\nfire decision -- priority hierarchy (threshold first, then tier/conf/pct):")
     THRESH = llm_trigger.SELECTION_PERCENTILE_THRESHOLD  # 0.80
 
-    def reduce_with(fixed):
-        """Run the trigger (readiness met) with selection_percentile_by_var stubbed
-        to `fixed`, so only the reduction logic is under test. The stub returns the
-        same dict regardless of scope (scoping-agnostic), so these cases cover the
-        reduction alone -- the real scoping is verified separately above and below.
-        The record carries axes (var_a/var_b active) purely to clear the new
-        no_active_vars guard before scoring is reached."""
+    def run_reduction(pcts, axes=(), filters=(), confidence=None):
+        """Drive the hierarchy reduction deterministically.
+
+        pcts:       {var: percentile|None} the (stubbed) scorer yields for active vars.
+        axes:       up to two vars placed on x/y  -> classified AXIS-tier.
+        filters:    vars given an active filter    -> FILTER-tier (unless also on axis).
+        confidence: {var: 1-100}; a var OMITTED here carries no confidence field
+                    (legacy) and must sort last within its tier, not be excluded.
+
+        Builds a client_record whose active set (axes | filters) and beliefs match,
+        and stubs selection_percentile_by_var to return pcts scoped to the active set
+        (so every var in pcts should be in axes|filters to stay scored). Returns the
+        trigger result.
+        """
+        axl = list(axes)
+        x = axl[0] if len(axl) >= 1 else None
+        y = axl[1] if len(axl) >= 2 else None
+        beliefs = {v: {"countsByGroup": {"diagnosed": {"confidence": c}}}
+                   for v, c in (confidence or {}).items()}
+        rec = {"dc_map_detailed": {"_": 1},   # truthy; real content unused (stubbed)
+               "beliefs": beliefs,
+               "bias_logs": [mouseout("t0", x=x, y=y)] if (x or y) else [],
+               "response_list": [filter_log("filter_added", f) for f in filters]}
         orig = dc_adapter.selection_percentile_by_var
         dc_adapter.selection_percentile_by_var = (
-            lambda det, sel, n_trials=1000, rng=None, variables=None: dict(fixed))
+            lambda det, sel, n_trials=1000, rng=None, variables=None:
+                {v: pcts[v] for v in pcts
+                 if variables is None or v in set(variables)})
         try:
-            rec_stub = {"dc_map_detailed": {"_": 1},          # truthy; content unused
-                        "bias_logs": [mouseout("x", x="var_a", y="var_b")]}  # active set
             return llm_trigger.evaluate_selection_progressive_trigger(
-                rec_stub, ["s0", "s1", "s2", "s3", "s4"])   # 5 -> ready
+                rec, ["s0", "s1", "s2", "s3", "s4"])   # 5 -> ready
         finally:
             dc_adapter.selection_percentile_by_var = orig
 
-    # --- multiple above threshold -> target is the HIGHEST, not first/arbitrary ---
-    # var_b (0.97) is the highest but NOT first in iteration order (var_a is first),
-    # and all three clear 0.80 -- so a first-found or arbitrary pick would fail.
-    multi = reduce_with({"var_a": 0.85, "var_b": 0.97, "var_c": 0.82})
-    print(f"    multi-above {{a:.85,b:.97,c:.82}} -> "
-          f"fired={multi['fired']} target={multi['target_var']} pct={multi['target_percentile']}")
-    check("multiple above threshold -> fired True",
-          multi["fired"] is True)
-    check("target is the HIGHEST percentile variable (var_b), not first-found",
-          multi["target_var"] == "var_b" and multi["target_percentile"] == 0.97)
-    check("full percentile_by_var still returned for logging",
-          multi["percentile_by_var"] == {"var_a": 0.85, "var_b": 0.97, "var_c": 0.82})
+    # --- CORE CASE: axis tier beats a STRICTLY HIGHER-percentile filter var -------
+    # var_a on an axis (0.85) vs var_b filtered (0.99). Both clear 0.80; no confidence
+    # set (tie at the sentinel), so tier alone decides -> the lower-percentile axis var
+    # wins. This is the whole point: threshold first, then tier over raw percentile.
+    core = run_reduction({"var_a": 0.85, "var_b": 0.99},
+                         axes=["var_a"], filters=["var_b"])
+    print(f"    axis var_a(0.85) vs filter var_b(0.99) -> "
+          f"fired={core['fired']} target={core['target_var']} pct={core['target_percentile']}")
+    check("axis var (0.85) beats a strictly higher-percentile filter var (0.99): tier wins",
+          core["fired"] is True and core["target_var"] == "var_a"
+          and core["target_percentile"] == 0.85)
+    check("percentile_by_var returned in full on a fire (for logging)",
+          core["percentile_by_var"] == {"var_a": 0.85, "var_b": 0.99})
 
-    # --- exactly one above threshold -> that one is the target -------------------
-    one = reduce_with({"var_a": 0.55, "var_b": 0.91, "var_c": 0.40})
-    check("exactly one above threshold -> fired True, target is that var",
-          one["fired"] is True and one["target_var"] == "var_b"
-          and one["target_percentile"] == 0.91)
+    # --- within a tier, higher CONFIDENCE wins even with a lower percentile --------
+    conf = run_reduction({"var_a": 0.85, "var_b": 0.99},
+                         axes=["var_a", "var_b"],
+                         confidence={"var_a": 90, "var_b": 40})
+    check("within a tier, higher confidence (var_a=90) beats higher percentile (var_b=0.99)",
+          conf["fired"] is True and conf["target_var"] == "var_a"
+          and conf["target_percentile"] == 0.85)
 
-    # --- none above threshold -> fired False even though READY -------------------
-    none_above = reduce_with({"var_a": 0.55, "var_b": 0.79, "var_c": 0.40})
+    # --- PERCENTILE decides only when tier AND confidence tie ---------------------
+    pct = run_reduction({"var_a": 0.90, "var_b": 0.95},
+                        axes=["var_a", "var_b"],
+                        confidence={"var_a": 50, "var_b": 50})
+    check("tier + confidence tied -> higher percentile (var_b=0.95) wins",
+          pct["target_var"] == "var_b" and pct["target_percentile"] == 0.95)
+
+    # --- deterministic full-tie fallback: variable name ascending -----------------
+    full_tie = run_reduction({"var_a": 0.90, "var_b": 0.90},
+                             axes=["var_a", "var_b"],
+                             confidence={"var_a": 50, "var_b": 50})
+    check("full tie (tier, confidence, percentile all equal) -> variable name (var_a)",
+          full_tie["target_var"] == "var_a")
+
+    # --- THRESHOLD gates BEFORE tier/confidence -----------------------------------
+    # var_a is an axis var with max confidence but sits at 0.79 (below 0.80) -> it is
+    # NOT a candidate at all; the filter var_b that cleared (0.85) wins despite being
+    # the lower tier with the minimum confidence. Proves thresholding happens first.
+    gated = run_reduction({"var_a": 0.79, "var_b": 0.85},
+                          axes=["var_a"], filters=["var_b"],
+                          confidence={"var_a": 100, "var_b": 1})
+    print(f"    sub-threshold axis var_a(0.79,conf100) + filter var_b(0.85,conf1) -> "
+          f"target={gated['target_var']}")
+    check("a sub-0.80 axis var with max confidence is NOT a candidate; the cleared "
+          "filter var wins -- threshold gates before tier/confidence",
+          gated["fired"] is True and gated["target_var"] == "var_b"
+          and gated["target_percentile"] == 0.85)
+
+    # --- a var BOTH on-axis and filtered classifies AXIS-tier ---------------------
+    both = run_reduction({"var_a": 0.85, "var_b": 0.95},
+                         axes=["var_a"], filters=["var_a", "var_b"])
+    check("a var that is BOTH on-axis and filtered is axis-tier -> var_a beats the "
+          "higher-percentile filter-only var_b",
+          both["fired"] is True and both["target_var"] == "var_a")
+
+    # --- missing/None confidence sorts LAST within tier, but stays a candidate -----
+    # Same (filter) tier: var_a has NO confidence field, var_b has 50. var_a's higher
+    # percentile (0.99) does NOT save it -- missing confidence sorts to the sentinel
+    # (below any real value), so var_b wins the confidence key.
+    missing = run_reduction({"var_a": 0.99, "var_b": 0.85},
+                            filters=["var_a", "var_b"],
+                            confidence={"var_b": 50})   # var_a: no confidence
+    check("missing confidence sorts last within tier: var_b(conf 50) beats var_a "
+          "(no confidence) despite var_a's higher percentile",
+          missing["target_var"] == "var_b")
+    solo = run_reduction({"var_a": 0.85}, filters=["var_a"])   # no confidence anywhere
+    check("a candidate with missing confidence is NOT excluded -- fires when it's alone",
+          solo["fired"] is True and solo["target_var"] == "var_a")
+    none_conf = run_reduction({"var_a": 0.85}, filters=["var_a"],
+                              confidence={"var_a": None})   # explicit None field
+    check("explicit None confidence does not raise; still a candidate",
+          none_conf["fired"] is True and none_conf["target_var"] == "var_a")
+
+    # --- None-PERCENTILE vars never enter candidacy -------------------------------
+    with_none = run_reduction({"var_a": None, "var_b": 0.90},
+                              axes=["var_a", "var_b"])
+    check("a None-percentile var is never a candidate; fire on the scored one",
+          with_none["fired"] is True and with_none["target_var"] == "var_b")
+    all_none = run_reduction({"var_a": None, "var_b": None},
+                             axes=["var_a", "var_b"])
+    check("all percentiles None -> fired False, target None (no crash)",
+          all_none["fired"] is False and all_none["target_var"] is None)
+
+    # --- boundary: exactly AT threshold is a candidate (>=, not >) ----------------
+    at_thresh = run_reduction({"var_a": THRESH}, axes=["var_a"])
+    check("percentile exactly == threshold is a candidate (>=): fires",
+          at_thresh["fired"] is True and at_thresh["target_var"] == "var_a")
+
+    # --- nothing clears -> fired False, target None, percentile_by_var still full --
+    none_above = run_reduction({"var_a": 0.55, "var_b": 0.79},
+                               axes=["var_a", "var_b"])
     print(f"    none-above (max .79 < {THRESH}) -> "
           f"ready={none_above['ready']} fired={none_above['fired']} target={none_above['target_var']}")
-    check("none above threshold -> ready True but fired False",
-          none_above["ready"] is True and none_above["fired"] is False)
-    check("no fire -> target_var and target_percentile are both None",
-          none_above["target_var"] is None and none_above["target_percentile"] is None)
+    check("none above threshold -> ready True but fired False, target None/None",
+          none_above["ready"] is True and none_above["fired"] is False
+          and none_above["target_var"] is None and none_above["target_percentile"] is None)
     check("no fire -> percentile_by_var still returned (shows how close it got)",
-          none_above["percentile_by_var"] == {"var_a": 0.55, "var_b": 0.79, "var_c": 0.40})
-
-    # --- boundary: exactly AT threshold fires (>=, not >) ------------------------
-    at_thresh = reduce_with({"var_a": 0.10, "var_b": THRESH})
-    check("percentile exactly == threshold fires (>=)",
-          at_thresh["fired"] is True and at_thresh["target_var"] == "var_b")
-
-    # --- None-valued variables are excluded from the max ------------------------
-    with_nones = reduce_with({"var_a": None, "var_b": 0.90, "var_c": None})
-    check("variables with None percentile are skipped; fire on the scored one",
-          with_nones["fired"] is True and with_nones["target_var"] == "var_b")
-    all_none = reduce_with({"var_a": None, "var_b": None})
-    check("all percentiles None -> fired False, target None (no crash on empty max)",
-          all_none["fired"] is False and all_none["target_var"] is None)
+          none_above["percentile_by_var"] == {"var_a": 0.55, "var_b": 0.79})
 
     # ===================================================================== #
     # Active-variable scoping: only the currently-active vars (axes + filters) are
