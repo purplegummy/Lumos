@@ -170,6 +170,15 @@ def ensure_client(sid, pid, app_mode, app_type, app_level, participant_id_source
             CLIENTS[pid]["priors"] = reloaded_priors
             maybe_compute_dc_map(pid, app_mode, CLIENTS[pid])
 
+    if app_type != CLIENTS[pid]["app_type"]:
+        # Overwrite a stale app_type from an earlier contact with this participant
+        # (e.g. /elicitation, where there's no ?type= param so it's just the
+        # AWARENESS default) once the real group shows up, typically on /main
+        # load. Persist immediately rather than waiting for the next on_save_logs,
+        # so Firestore doesn't keep showing the wrong group in the meantime.
+        CLIENTS[pid]["app_type"] = app_type
+        firebase_logger.save_meta(pid, CLIENTS[pid])
+
     if app_mode != CLIENTS[pid]["app_mode"] or app_level != CLIENTS[pid]["app_level"]:
         # datasets have been switched => reset the logs array!
         # OR

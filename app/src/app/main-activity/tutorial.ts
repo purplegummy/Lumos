@@ -46,9 +46,10 @@ export function exitTutorial(targetPath: string = "/task-intro"): void {
   // value/alias (e.g. "F") was already there. The tutorial forces CONTROL
   // layout at runtime regardless of what's in the URL (see isTutorialRequested
   // handling in component.ts), so this is purely about not rewriting the
-  // participant's original link.
+  // participant's original link. Use the "F" shorthand (see typeAliases in
+  // component.ts) rather than spelling out CONTROL, to keep the URL short.
   if (!url.searchParams.has("type")) {
-    url.searchParams.set("type", "CONTROL");
+    url.searchParams.set("type", "F");
   }
   if (!url.searchParams.has("level")) {
     url.searchParams.set("level", "live");
@@ -242,13 +243,6 @@ export function startElicitationIntro(): void {
       },
       {
         popover: {
-          title: "Your Goal",
-          description:
-            "Imagine you're a first-time homebuyer deciding between a single-family home and a duplex. You'll explore the data and pick 3 homes worth touring in person. This will be similar to the real task.",
-        },
-      },
-      {
-        popover: {
           title: "About the Sample Data",
           description:
             "This practice round uses a small sample of home sale records, including details like home type, lot size, and sale price.",
@@ -256,7 +250,7 @@ export function startElicitationIntro(): void {
       },
       {
         popover: {
-          title: "Stage 1: Understanding Your Beliefs",
+          title: "This is Part 1 of our study!",
           description:
             "This stage will ask you to estimate how common different traits are among two groups of homes: single-family homes and duplexes. Follow the instructions and express your beliefs by allocating the tokens into bins.",
         },
@@ -311,9 +305,9 @@ export function startElicitationIntro(): void {
 
   tour.drive();
 
-  // Step 5: don't allow "Next" until they place at least one token; explain
+  // Step 4: don't allow "Next" until they place at least one token; explain
   // what that placement means before letting them continue.
-  armTokenPlacementExplanation(tour, 5, ".histogram-box");
+  armTokenPlacementExplanation(tour, 4, ".histogram-box");
 
   // The confidence slider only exists once the participant has for real
   // placed all 60 tokens (both distributions) and clicked "Save & continue"
@@ -436,7 +430,7 @@ export function startTutorial(dataset?: any, isLlm: boolean = false): void {
 
   addStep("intro", {
     popover: {
-      title: "Stage 2: Interface Walkthrough",
+      title: "Welcome to Part 2 of our study!",
       description:
         "This is the exploration user interface, using the same small sample of home sale records. Try each step yourself as you go. Click Next to begin.",
     },

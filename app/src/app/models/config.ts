@@ -5,7 +5,17 @@ import { Injectable } from "@angular/core";
 import { UtilsService } from "../services/utils.service";
 
 var UtilsServiceObj = new UtilsService();
-var prolificId = new URLSearchParams(window.location.search).get("PROLIFIC_PID");
+function getQueryParamCaseInsensitive(search: string, name: string): string | null {
+  const params = search.replace(/^\?/, "").split("&");
+  for (const param of params) {
+    const [key, value] = param.split("=");
+    if (key && decodeURIComponent(key).toLowerCase() === name.toLowerCase()) {
+      return value !== undefined ? decodeURIComponent(value.replace(/\+/g, " ")) : "";
+    }
+  }
+  return null;
+}
+var prolificId = getQueryParamCaseInsensitive(window.location.search, "prolific_pid");
 var participantId = prolificId || UtilsServiceObj.generateRandomUniqueString(12);
 var participantIdSource = prolificId ? "prolific" : "random";
 
