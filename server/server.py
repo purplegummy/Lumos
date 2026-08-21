@@ -334,10 +334,13 @@ async def on_task_submitted(sid, data):
               f" | elicitation_ms={elicitation_duration_ms} elicitation_engagement={elicitation_engagement}"
               f" main_task_ms={main_task_duration_ms} main_engagement={main_engagement}")
 
-        # --- SelectionBias percentile: computed ONCE here at submit time from the
-        # CACHED dc_map + the FINAL submitted selection (no DC recompute). Shiyao
-        # confirmed selection_bias has no trigger policy -- it's a one-shot at
-        # submission. selection_bias_percentile raises fail-loud inside dc_metric,
+        # --- SelectionBias at submit: computed ONCE here from the CACHED maps +
+        # the FINAL submitted selection (no DC recompute). Shiyao confirmed
+        # selection_bias has no trigger policy -- it's a one-shot at submission.
+        # The dependent measure is the PER-VARIABLE selection_bias_v (the
+        # methodology moved to per-variable VC); the pooled percentile stays
+        # alongside it so the measure carried through the study so far is not
+        # lost mid-study. Both computations raise fail-loud inside dc_metric,
         # so guard at this handler boundary (same convention as on_interaction's
         # dwell_bias guard) -- a stray id must never break submission. Absent
         # dc_map (elicitation never completed) -> skip. ---
@@ -347,19 +350,29 @@ async def on_task_submitted(sid, data):
             try:
                 pct = dc_adapter.compute_selection_percentile(
                     dc_map_cached, subjects, rng=dc_adapter.live_rng())
+                detailed = client.get("dc_map_detailed")
+                selection = (llm_intervention.selection_metrics(detailed, subjects)
+                             if detailed else None)
                 print(f"[SEL%] pid={pid} | "
                       f"selection_bias_percentile={pct['selection_bias_percentile']} "
                       f"(n_selected={len(subjects)})", flush=True)
+                if selection:
+                    print(f"[SEL-V] pid={pid} | " + "  ".join(
+                        f"{v}={b:+.4f}" for v, b in selection["selection_bias_v"].items()),
+                        flush=True)
                 distinct_vals = sorted(set(round(v, 4) for v in dc_map_cached.values()))
                 print(f"[DC-ARR] pid={pid} | n={len(dc_map_cached)} distinct={len(distinct_vals)} | "
                       f"values={'  '.join(f'{v:.4f}' for v in dc_map_cached.values())}", flush=True)
-                # Persist the submission-time SelectionBias percentile and the
-                # DC-ARR data, which otherwise live only in the prints above.
+                # Persist the submission-time SelectionBias (per-variable and
+                # pooled) and the DC-ARR data, which otherwise live only in the
+                # prints above.
                 firebase_logger.save_logs(pid, [{
                     "kind": "selection_percentile",
                     "participant_id": pid,
                     "created_at": bias_util.get_current_time(),
                     "selection_bias_percentile": pct["selection_bias_percentile"],
+                    "selection_bias": selection["selection_bias"] if selection else None,
+                    "selection_bias_v": selection["selection_bias_v"] if selection else None,
                     "n_selected": len(subjects),
                     "dc_map_n": len(dc_map_cached),
                     "dc_map_distinct": len(distinct_vals),
