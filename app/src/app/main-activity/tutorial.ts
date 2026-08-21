@@ -46,9 +46,10 @@ export function exitTutorial(targetPath: string = "/task-intro"): void {
   // value/alias (e.g. "F") was already there. The tutorial forces CONTROL
   // layout at runtime regardless of what's in the URL (see isTutorialRequested
   // handling in component.ts), so this is purely about not rewriting the
-  // participant's original link.
+  // participant's original link. Use the "F" shorthand (see typeAliases in
+  // component.ts) rather than spelling out CONTROL, to keep the URL short.
   if (!url.searchParams.has("type")) {
-    url.searchParams.set("type", "CONTROL");
+    url.searchParams.set("type", "F");
   }
   if (!url.searchParams.has("level")) {
     url.searchParams.set("level", "live");
@@ -256,7 +257,7 @@ export function startElicitationIntro(): void {
       },
       {
         popover: {
-          title: "Stage 1: Understanding Your Beliefs",
+          title: "Welcome to Part 1 of our study!",
           description:
             "This stage will ask you to estimate how common different traits are among two groups of homes: single-family homes and duplexes. Follow the instructions and express your beliefs by allocating the tokens into bins.",
         },
@@ -436,7 +437,7 @@ export function startTutorial(dataset?: any, isLlm: boolean = false): void {
 
   addStep("intro", {
     popover: {
-      title: "Stage 2: Interface Walkthrough",
+      title: "Welcome to Part 2 of our study!",
       description:
         "This is the exploration user interface, using the same small sample of home sale records. Try each step yourself as you go. Click Next to begin.",
     },
