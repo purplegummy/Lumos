@@ -15,8 +15,9 @@ when the trigger policy does:
    is a thin bool wrapper for callers that don't need the reason.
 
 2. evaluate_selection_trigger -- the live mid-task decision: the progressive trigger
-   (3) behind a pick-counted cooldown (SELECTION_RECHECK_PICKS) that keeps it from
-   firing on every selection past the 5th.
+   (3) held to a fixed pick schedule (a check at the 5th selection and every
+   SELECTION_RECHECK_PICKS after: 5th, 7th, 9th), whether or not an earlier check
+   fired.
 
 3. evaluate_selection_progressive_trigger -- a per-selection sibling of the realtime
    dwell trigger (1), scoring the running selection per variable and firing on the
@@ -55,7 +56,7 @@ SYSTEM_FIRE_COOLDOWN_MS = 30_000   # min REAL (wall-clock) time between any two 
 # --------------------------------------------------------------------------- #
 MIN_SELECTIONS = 5                     # too few picks makes the mean DC meaningless
 SELECTION_PERCENTILE_THRESHOLD = 0.80  # fire when SelectionBias is at/above this percentile
-SELECTION_RECHECK_PICKS = 2            # extra picks between two selection-time fires
+SELECTION_RECHECK_PICKS = 2            # picks between two checks (5th, 7th, 9th ...)
 
 def evaluate_trigger(client_record, dwell_metrics, now_ms=None):
     """Decide whether to fire a realtime intervention, AND say why not.
@@ -267,34 +268,45 @@ def reset_dwell_watermark(client_record):
 
 
 def evaluate_selection_trigger(client_record, selected_ids):
-    """The live mid-task decision: the progressive trigger behind a pick cooldown.
+    """The live mid-task decision: the progressive trigger on a fixed pick schedule.
 
     Thin wrapper over evaluate_selection_progressive_trigger (below), which owns
-    the readiness gate and the per-variable fire decision. This adds the one thing
-    it deliberately left out: SELECTION_RECHECK_PICKS additional picks must be made
-    after a fire before the next one can. Counted in picks for the same reason the
-    realtime gate counts dwell seconds -- the spacing has to be in the currency of
-    the behaviour that earns the intervention.
+    the readiness gate and the per-variable fire decision. This adds the schedule:
+    a check runs at MIN_SELECTIONS and then every SELECTION_RECHECK_PICKS picks
+    after it (the 5th, 7th and 9th selections), whether or not an earlier check
+    fired. Two additional picks are the unit of NEW EVIDENCE between checks, not
+    a post-fire penalty -- checking one pick after a non-fire would re-ask the
+    same question of nearly the same selection.
 
-    Returns the progressive trigger's dict unchanged; on cooldown, the same shape
-    as its not-ready case with a "cooldown (...)" reason.
+    Each checkpoint fires AT MOST ONCE per session (Shiyao: "we just check their
+    selections once at 5, once at 7, and once at 9"), tracked as the set of
+    consumed checkpoints (selection_checkpoints_checked): deselecting below one
+    and re-selecting back to it does not re-run it, because reaching the same
+    count again is a reshuffle of an already-checked selection, not two
+    selections of new evidence.
 
-    Side effect on fire: records selection_last_fired_n so the cooldown above is
-    measured from the pick count that fired.
+    Returns the progressive trigger's dict unchanged; on a skipped check, the
+    same shape as its not-ready case with an "off_schedule (...)" or
+    "already_checked (...)" reason.
     """
     n_selected = len(set(selected_ids))
-    last_fired_n = client_record.get("selection_last_fired_n")
-    if last_fired_n is not None and n_selected - last_fired_n < SELECTION_RECHECK_PICKS:
-        return {"ready": False,
-                "reason": (f"cooldown ({n_selected - last_fired_n} < "
-                           f"{SELECTION_RECHECK_PICKS} picks since the last one)"),
-                "n_selected": n_selected,
-                "percentile_by_var": None}
+    if n_selected >= MIN_SELECTIONS:
+        past = (n_selected - MIN_SELECTIONS) % SELECTION_RECHECK_PICKS
+        if past != 0:
+            return {"ready": False,
+                    "reason": (f"off_schedule (n={n_selected}, next check at "
+                               f"{n_selected + SELECTION_RECHECK_PICKS - past})"),
+                    "n_selected": n_selected,
+                    "percentile_by_var": None}
+        checked = client_record.setdefault("selection_checkpoints_checked", set())
+        if n_selected in checked:
+            return {"ready": False,
+                    "reason": f"already_checked (checkpoint {n_selected} consumed)",
+                    "n_selected": n_selected,
+                    "percentile_by_var": None}
+        checked.add(n_selected)
 
-    result = evaluate_selection_progressive_trigger(client_record, selected_ids)
-    if result.get("fired"):
-        client_record["selection_last_fired_n"] = result["n_selected"]
-    return result
+    return evaluate_selection_progressive_trigger(client_record, selected_ids)
 
 
 def _confidence_for_var(client_record, var):
