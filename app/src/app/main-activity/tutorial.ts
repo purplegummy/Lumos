@@ -243,13 +243,6 @@ export function startElicitationIntro(): void {
       },
       {
         popover: {
-          title: "Your Goal",
-          description:
-            "Imagine you're a first-time homebuyer deciding between a single-family home and a duplex. You'll explore the data and pick 3 homes worth touring in person. This will be similar to the real task.",
-        },
-      },
-      {
-        popover: {
           title: "About the Sample Data",
           description:
             "This practice round uses a small sample of home sale records, including details like home type, lot size, and sale price.",
@@ -257,7 +250,7 @@ export function startElicitationIntro(): void {
       },
       {
         popover: {
-          title: "Welcome to Part 1 of our study!",
+          title: "This is Part 1 of our study!",
           description:
             "This stage will ask you to estimate how common different traits are among two groups of homes: single-family homes and duplexes. Follow the instructions and express your beliefs by allocating the tokens into bins.",
         },
@@ -312,9 +305,9 @@ export function startElicitationIntro(): void {
 
   tour.drive();
 
-  // Step 5: don't allow "Next" until they place at least one token; explain
+  // Step 4: don't allow "Next" until they place at least one token; explain
   // what that placement means before letting them continue.
-  armTokenPlacementExplanation(tour, 5, ".histogram-box");
+  armTokenPlacementExplanation(tour, 4, ".histogram-box");
 
   // The confidence slider only exists once the participant has for real
   // placed all 60 tokens (both distributions) and clicked "Save & continue"
