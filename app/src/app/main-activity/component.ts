@@ -331,8 +331,15 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
   panelValue(attr: string) {
     const ds = this.appConfig[this.global.appMode];
     const ho = ds['hoveredObject'];
-    if (attr === ds['xVar'] && ho['jitter_xVal'] != null) return Math.round(ho['jitter_xVal'] * 10) / 10;
-    if (attr === ds['yVar'] && ho['jitter_yVal'] != null) return Math.round(ho['jitter_yVal'] * 10) / 10;
+    // Only trust a stored jitter value when the axis is currently Q. The hovered
+    // object can be a selected-subject reference carrying stale jitter_*Val from
+    // an earlier axis configuration (e.g. a Q x-axis that's since been swapped to
+    // the categorical diagnosis variable) -- without the Q guard that stale
+    // number would render in place of the real "Yes"/"No" label.
+    const xIsQ = this.utilsService.isMeasure(ds, ds['xVar'], 'Q');
+    const yIsQ = this.utilsService.isMeasure(ds, ds['yVar'], 'Q');
+    if (attr === ds['xVar'] && xIsQ && ho['jitter_xVal'] != null) return Math.round(ho['jitter_xVal'] * 10) / 10;
+    if (attr === ds['yVar'] && yIsQ && ho['jitter_yVal'] != null) return Math.round(ho['jitter_yVal'] * 10) / 10;
     return ho[attr];   // true value for all other columns, and when no jitter stored
   }
 
