@@ -62,7 +62,7 @@ DWELL_RECHECK_SECONDS = 10.0       # min NEW ELIGIBLE dwell for the SAME variabl
 # The system-wide gate is a DISPLAY-LINKED PAUSE, not a duration: CLOSED from the moment
 # a fire is decided, and open again only once the participant's panel has actually gone
 # away (on_llm_dismissed -> release_display_pause). It replaces a fixed 30s wall clock,
-# per Shiyao -- "paused while the panel is visible, resumes when it disappears". A
+# per the study lead -- "paused while the panel is visible, resumes when it disappears". A
 # participant who reads a nudge for 8s and closes it should not then sit through 22s of
 # nothing; one who leaves it up should not have the clock run out underneath it.
 #
@@ -104,7 +104,7 @@ SELECTION_RECHECK_PICKS = 2            # picks between two checks (5th, 7th, 9th
 #
 # Both score their active variables INDEPENDENTLY, one percentile each, and then
 # have to reduce that {variable: percentile} dict to one target. That reduction --
-# Shiyao's priority hierarchy -- is identical for the two; only the way the
+# the study's priority hierarchy -- is identical for the two; only the way the
 # percentiles were computed differs. It lives here, once, rather than as a closure
 # inside either trigger.
 # --------------------------------------------------------------------------- #
@@ -122,7 +122,7 @@ def _axis_and_filter_vars(client_record):
     priority resolves that to the AXIS tier (axis membership wins).
 
     "Filtered" means the filter actually CONSTRAINS the attribute, not merely that it
-    has been touched (Shiyao's item 9) -- get_current_filters reads the dataset ranges
+    has been touched (study spec item 9) -- get_current_filters reads the dataset ranges
     off the record's own "app_mode" to decide, so no mode has to be passed here.
     """
     axes = llm_intervention.get_current_axes(client_record)
@@ -154,7 +154,7 @@ def _confidence_for_var(client_record, var):
 
 
 def _reduce_by_priority(percentile_by_var, axis_vars, client_record, threshold):
-    """Shiyao's PRIORITY HIERARCHY -> the winning variable, or None.
+    """The study's PRIORITY HIERARCHY -> the winning variable, or None.
 
     THRESHOLD FIRST, THEN RANK. The candidate set is every scored variable that CLEARS
     the threshold (percentile not None and >= threshold), built before any tier/
@@ -220,7 +220,7 @@ def filters_active_as_of(response_list, bound_ms, app_mode=None):
     so untimestamped test records behave as they did before this change.
 
     app_mode is threaded straight through to get_current_filters, which needs it to
-    decide whether a filter_changed actually CONSTRAINS its attribute (Shiyao's item 9)
+    decide whether a filter_changed actually CONSTRAINS its attribute (study spec item 9)
     rather than merely switching it on. It has to be passed explicitly here: the record
     handed down is synthetic -- a bare {"response_list": prefix} -- so there is no
     client record for get_current_filters to read the mode off. None leaves the
@@ -353,7 +353,7 @@ SELECTION_CLICK_TYPES = ("click_add_item", "click_remove_item", "click_group")
 def eligible_selection_by_var(bias_logs, response_list, app_mode=None):
     """Per-variable eligible SELECTION sets -> {variable: set(teen_id)}.
 
-    Shiyao's items 7-8. A selection is evidence about the variable the participant was
+    Study spec items 7-8. A selection is evidence about the variable the participant was
     LOOKING AT WHEN THEY MADE IT, not about whatever happens to be on screen when the
     check runs. Scoring every variable against one global selection set attributes each
     pick to all of them at once, so a variable inherits picks made while it was nowhere
@@ -472,11 +472,11 @@ def evaluate_trigger(client_record, dwell_metrics, now_ms=None):
     SECONDS of new eligible dwell -- but a variable that was SCORED AND LOST keeps its
     recheck budget by design (see below), so if it was already eligible before the
     dismiss it can fire immediately, with no wall-clock gap. The old 30s floor concealed
-    that. This is the behaviour Shiyao asked for, not an oversight: the pause is meant to
-    track the panel, and once the panel is gone there is nothing left to wait for.
+    that. This is the behaviour the study lead asked for, not an oversight: the pause
+    is meant to track the panel, and once the panel is gone there is nothing left to wait for.
 
     Side effect -- dwell_last_checked_by_var[v], in v's OWN eligible-seconds units.
-    Confirmed with Shiyao, and asymmetric between the two outcomes:
+    Confirmed with the study lead, and asymmetric between the two outcomes:
       * ON FIRE, only the WINNING variable's clock advances, and dwell_last_fired_vars
         holds exactly [winner]. The variables that were scored but lost were not what the
         intervention was about, so that evaluation must not spend their recheck budget.
@@ -543,7 +543,7 @@ def evaluate_trigger(client_record, dwell_metrics, now_ms=None):
             return False, f"panel_displayed ({note} since the intervention fired)", trace
 
     # --- resolve the CURRENTLY ACTIVE variables ONCE: the x/y axis attributes PLUS
-    # any attribute with an active filter (Shiyao's request). This governs which
+    # any attribute with an active filter (per the study lead). This governs which
     # variables are even CANDIDATES to check right now; how much EVIDENCE each has is a
     # separate, historical question answered by `eligible` below. The two tiers are kept
     # APART (not unioned away) because the priority hierarchy classifies the winner by
@@ -621,7 +621,7 @@ def evaluate_trigger(client_record, dwell_metrics, now_ms=None):
         # re-check costs no sampling (the guard runs before it), so repeating it is cheap.
         return False, f"degenerate_null (nothing scorable: {_excluded_note(excluded)})", trace
 
-    # --- Shiyao's PRIORITY HIERARCHY over the per-variable percentiles ----------------
+    # --- The study's PRIORITY HIERARCHY over the per-variable percentiles --------------
     winner = _reduce_by_priority(percentile_by_var, axis_vars, client_record,
                                  DWELL_PERCENTILE_THRESHOLD)
 
@@ -682,7 +682,7 @@ def _dwell_percentile_by_var(dc_map_detailed, scope_vars, dwell_by_var, rng=None
         from v's own history, so the null matches the score's scale.
       * scoping to a single variable makes w_v cancel exactly (Sum w_v*C_v / Sum w_v over
         one term is C_v), so these percentiles are scored on the RAW per-variable
-        consistency with no js-weighting anywhere in the path. That is Shiyao's
+        consistency with no js-weighting anywhere in the path. That is the study's
         "use VC_v, not VC_v x w_v" -- it falls out of the restructuring rather than
         needing a flag.
 
@@ -829,7 +829,7 @@ def evaluate_selection_trigger(client_record, selected_ids):
     a post-fire penalty -- checking one pick after a non-fire would re-ask the
     same question of nearly the same selection.
 
-    Each checkpoint fires AT MOST ONCE per session (Shiyao: "we just check their
+    Each checkpoint fires AT MOST ONCE per session (per the study lead: "we just check their
     selections once at 5, once at 7, and once at 9"), tracked as the set of
     consumed checkpoints (selection_checkpoints_checked): deselecting below one
     and re-selecting back to it does not re-run it, because reaching the same
@@ -867,7 +867,7 @@ def evaluate_selection_trigger(client_record, selected_ids):
 #
 # A non-blocking, per-selection sibling of the realtime dwell trigger, scoring the
 # running selection instead of dwell and PER VARIABLE instead of pooled, firing on
-# the single most extreme variable (Shiyao's rule). Reached live only through
+# the single most extreme variable (the study's rule). Reached live only through
 # evaluate_selection_trigger above, whose pick-counted cooldown keeps it from
 # firing on every selection past the 5th.
 # --------------------------------------------------------------------------- #
@@ -891,7 +891,7 @@ def evaluate_selection_progressive_trigger(client_record, selected_ids):
        "percentile_by_var": {variable: percentile},   # full dict, for logging
        "excluded_vars":     {variable: code}}         # dropped before sampling
 
-    SCOPE (Shiyao's rule, mirroring the dwell trigger): only the CURRENTLY ACTIVE
+    SCOPE (study rule, mirroring the dwell trigger): only the CURRENTLY ACTIVE
     variables are scored -- the x/y axis attributes plus any attribute with an active
     filter (get_current_axes | get_current_filters, the same active set the dwell
     trigger scopes on). The pre-scoping behavior scored every belief variable; now a
@@ -899,7 +899,7 @@ def evaluate_selection_progressive_trigger(client_record, selected_ids):
     block a fire. An empty active set is treated like dwell's no_visible_axes guard:
     not-ready, no scoring attempted.
 
-    Reduction (Shiyao's PRIORITY HIERARCHY): delegated to _reduce_by_priority, the
+    Reduction (the study's PRIORITY HIERARCHY): delegated to _reduce_by_priority, the
     threshold-then-rank helper this gate SHARES with the dwell trigger -- threshold
     first, then axis-tier > filter-tier > confidence > percentile > name. See that
     function for the ordering and why it is that way. This gate contributes only its
@@ -962,7 +962,7 @@ def evaluate_selection_progressive_trigger(client_record, selected_ids):
     excluded = dc_adapter.degenerate_vars(
         client_record["dc_map_detailed"], variables=active_vars)
 
-    # --- Shiyao's PRIORITY HIERARCHY: THRESHOLD FIRST, then rank -----------------
+    # --- The study's PRIORITY HIERARCHY: THRESHOLD FIRST, then rank ---------------
     # Threshold-then-rank (axis tier > filter tier > confidence > percentile > name),
     # now the SHARED reduction the dwell trigger also runs -- see _reduce_by_priority.
     # Behaviour here is unchanged by that extraction; only the threshold, which stays

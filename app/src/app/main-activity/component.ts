@@ -672,7 +672,7 @@ export class MainActivityComponent implements OnInit, AfterViewInit {
           if (context.utilsService.isMeasure(dataset, attr, "Q")) {
             d[attr] = parseFloat(d[attr]);
           } else if (context.utilsService.isMeasure(dataset, attr, "T")) {
-            // d[attr] = parseTime(d[attr]); // ARPIT TODO
+            // d[attr] = parseTime(d[attr]); // TODO (inherited from upstream)
           }
         });
       });

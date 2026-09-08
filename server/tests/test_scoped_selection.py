@@ -21,6 +21,12 @@ Covers:
 Mirrors test_dc_metric.py's pattern (a nonlocal `check`, pure asserts + prints, exits
 non-zero on failure). Touches none of the existing suites.
 """
+# Run either as `python -m pytest` from server/ or directly as `python tests/<file>.py`;
+# both need server/ itself on sys.path, since this file no longer sits beside the
+# modules it imports. pytest's conftest mechanism would not cover direct invocation.
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+
 import numpy as np
 
 import dc_adapter
@@ -76,7 +82,7 @@ def main():
             failures += 1
 
     # ===================================================================== #
-    # THE CORE CASE (Shiyao's item 7): pick under var_a, switch axes, pick under
+    # THE CORE CASE (study spec item 7): pick under var_a, switch axes, pick under
     # var_b. Neither variable may inherit the other's point.
     # ===================================================================== #
     print("eligible_selection_by_var -- attribution is fixed at selection time:")

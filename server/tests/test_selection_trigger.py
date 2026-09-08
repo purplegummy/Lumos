@@ -7,6 +7,12 @@ evaluate_selection_progressive_trigger (which has its own test file), so it is
 stubbed out here -- the point of the seam is that the spacing around it holds
 whichever check is behind it.
 """
+# Run either as `python -m pytest` from server/ or directly as `python tests/<file>.py`;
+# both need server/ itself on sys.path, since this file no longer sits beside the
+# modules it imports. pytest's conftest mechanism would not cover direct invocation.
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+
 import llm_trigger
 
 

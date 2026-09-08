@@ -37,6 +37,12 @@ fraction of the 1000 null draws within 1e-9 of the real value, and report its me
 per condition -- to see whether continuous Dirichlet dwell times make exact ties
 rare, or whether the spiked prior's degenerate DC still produces them.
 """
+# Run from server/ as `python scripts/<file>.py`; server/ itself must be on sys.path,
+# since this file no longer sits beside the modules it imports. Note the data loader
+# (bias.read_data) still resolves `data/` relative to the CWD, so run from server/.
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+
 import argparse
 import random
 import time

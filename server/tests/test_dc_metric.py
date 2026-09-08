@@ -19,6 +19,12 @@ It also prints the DC distribution summary and every phase metric for eyeballing
 
 Pure asserts + prints; exits non-zero on failure.
 """
+# Run either as `python -m pytest` from server/ or directly as `python tests/<file>.py`;
+# both need server/ itself on sys.path, since this file no longer sits beside the
+# modules it imports. pytest's conftest mechanism would not cover direct invocation.
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+
 import csv
 import os
 import random
@@ -27,7 +33,8 @@ import numpy as np
 
 import dc_metric as dc
 
-DATA_PATH = os.path.join(os.path.dirname(__file__), "data", "mental_health_data.csv")
+DATA_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         "data", "mental_health_data.csv")
 
 NUMERIC_ATTRS = [
     "child_age_years",

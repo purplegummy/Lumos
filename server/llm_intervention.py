@@ -217,7 +217,7 @@ def _attribute_domain(app_mode, attribute):
 def _filter_is_constraining(app_mode, attribute, value):
     """Does this filterModel actually NARROW the attribute, or is it just switched on?
 
-    Shiyao's item 9: a filter the participant has merely touched is not evidence they
+    Study spec item 9: a filter the participant has merely touched is not evidence they
     are reasoning about that variable -- only one that actually excludes rows is. The
     comparison is against the attribute's full domain (_attribute_domain):
 
@@ -274,7 +274,7 @@ def get_current_filters(client_record, app_mode=None):
 
     "Active" used to mean "switched on at some point": filter_changed unconditionally
     added, and nothing but an explicit removal ever took an attribute back out. It now
-    means the filter is actually EXCLUDING ROWS (Shiyao's item 9) -- a change back to
+    means the filter is actually EXCLUDING ROWS (study spec item 9) -- a change back to
     the full range or the full category set deactivates the attribute again. This is
     the first rule that can deactivate on a value change, which matters because in the
     live study filter_changed is the ONLY filter event the UI can emit: the study

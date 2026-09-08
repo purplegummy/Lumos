@@ -12,6 +12,12 @@ numbers from the sandbox.
 Reminder on direction: SMALL divergence => interactions mirror the prior =>
 HIGH score (high confirmation bias). So match ~= high, dramatic ~= low.
 """
+# Run either as `python -m pytest` from server/ or directly as `python tests/<file>.py`;
+# both need server/ itself on sys.path, since this file no longer sits beside the
+# modules it imports. pytest's conftest mechanism would not cover direct invocation.
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+
 from js_divergence import js_confirmation_score
 
 # Tolerance for comparing against exact sandbox values once they're filled in.

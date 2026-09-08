@@ -27,6 +27,12 @@ exits non-zero on failure). It does NOT touch the existing get_current_axes test
 (test_llm_intervention.py) or the pooled percentile tests (test_dc_metric.py);
 both keep passing unchanged.
 """
+# Run either as `python -m pytest` from server/ or directly as `python tests/<file>.py`;
+# both need server/ itself on sys.path, since this file no longer sits beside the
+# modules it imports. pytest's conftest mechanism would not cover direct invocation.
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+
 import asyncio
 
 import numpy as np
@@ -329,7 +335,7 @@ def main():
     print(f"    same var_a scope, GLOBAL dwell -> pct={global_pct} "
           f"(vs {ev_tr['percentile_by_var']['var_a']} on var_a's own dwell)")
     check("var_a scored on the GLOBAL dwell would NOT have fired -- the fire comes "
-          "from var_a's own eligible dwell (this is Shiyao's item 1)",
+          "from var_a's own eligible dwell (this is study spec item 1)",
           global_pct is not None
           and global_pct < llm_trigger.DWELL_PERCENTILE_THRESHOLD
           and ev_tr["percentile_by_var"]["var_a"] > global_pct)
@@ -431,7 +437,7 @@ def main():
           fB is True and rB == "ok" and trB["target_var"] == "var_a"
           and pooled_pct_B < llm_trigger.DWELL_PERCENTILE_THRESHOLD)
 
-    # --- WINNER-ONLY cooldown on a fire (Shiyao's item 5) -------------------------
+    # --- WINNER-ONLY cooldown on a fire (study spec item 5) ----------------------
     # var_b WAS scored this check, and lost. Its recheck clock must not be spent on an
     # intervention that was not about it.
     check("on a fire, ONLY the winner's clock advances",
@@ -736,7 +742,7 @@ def main():
           fL2 is True and rL2 == "ok" and recL["dwell_last_fired_vars"] == ["var_b"])
 
     # ===================================================================== #
-    # PER-VARIABLE ELIGIBLE DWELL (Shiyao's spec): a hover counts toward a variable
+    # PER-VARIABLE ELIGIBLE DWELL (study spec): a hover counts toward a variable
     # only if that variable was active AT THE MOMENT of that hover; readiness and
     # recheck spacing run on each variable's OWN eligible seconds, not global dwell.
     # ===================================================================== #
@@ -788,7 +794,7 @@ def main():
           llm_trigger.filters_active_as_of(rlist, None) == set())
 
     # --- (2) active-now but thin -> NOT ready, while a var with its own history fires -
-    # Shiyao's example: dwell builds on one variable, then the participant switches to a
+    # Worked example from the study spec: dwell builds on one variable, then the participant switches to a
     # new one; the new one is active but must NOT be checkable until it has its own 20s.
     # Here var_a is filtered throughout and accrues 28s; var_b is switched onto the axis
     # only at the very end and has just 3s. Both are active now; only var_a is ready.

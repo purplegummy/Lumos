@@ -10,7 +10,7 @@ Covers the build-only pieces (none wired live):
     over EVERY belief variable (selection has no axes to scope to), by reusing
     scoped_detailed_map([v]) + the unchanged dc_metric.selection_bias_percentile.
   * llm_trigger.evaluate_selection_progressive_trigger -- readiness gate
-    (n_selected >= MIN_SELECTIONS) then Shiyao's PRIORITY HIERARCHY: threshold the
+    (n_selected >= MIN_SELECTIONS) then the study's PRIORITY HIERARCHY: threshold the
     per-variable percentiles at SELECTION_PERCENTILE_THRESHOLD FIRST, then among the
     crossers rank by tier (axis > filter), confidence, percentile, and finally
     variable name; the winner is target_var.
@@ -21,6 +21,12 @@ Mirrors test_scoped_dwell_trigger.py's pattern (a nonlocal `check`, pure asserts
 prints, exits non-zero on failure). It does NOT touch the dwell trigger, dc_metric,
 or any existing test.
 """
+# Run either as `python -m pytest` from server/ or directly as `python tests/<file>.py`;
+# both need server/ itself on sys.path, since this file no longer sits beside the
+# modules it imports. pytest's conftest mechanism would not cover direct invocation.
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+
 import asyncio
 
 import numpy as np
@@ -233,7 +239,7 @@ def main():
               rec, just_under)["ready"] is False)
 
     # ===================================================================== #
-    # Fire decision (Shiyao's PRIORITY HIERARCHY): threshold FIRST, then rank by
+    # Fire decision (the study's PRIORITY HIERARCHY): threshold FIRST, then rank by
     # tier (axis > filter) -> confidence -> percentile -> variable name. The per-
     # variable percentiles are stubbed so the reduction is tested deterministically;
     # the record's axes/filters/beliefs set each variable's tier and confidence.

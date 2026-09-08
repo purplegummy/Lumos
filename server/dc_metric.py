@@ -477,7 +477,7 @@ def dwell_bias_v(detailed_map, dwell, weighted=False):
     to use the js-weighted contribution w_v * C_{i,v} instead -- the stored weights
     make this a one-line switch. Because w_v is teen-independent, with weighted=True
     the per-variable scores decompose the point-level DwellBias exactly:
-    sum_v DwellBias_v[v] / sum_v(w_v) == DwellBias. CONFIRMED (Shiyao): the LLM
+    sum_v DwellBias_v[v] / sum_v(w_v) == DwellBias. CONFIRMED (study lead): the LLM
     intervention passes weighted=True at both call sites so its ranking is on the
     same scale as the scalar; the default here is unchanged.
 
@@ -515,7 +515,7 @@ def dwell_bias_v(detailed_map, dwell, weighted=False):
 
 
 # --------------------------------------------------------------------------- #
-# 8. Percentile null-distribution wrappers (Shiyao's methodology)
+# 8. Percentile null-distribution wrappers (study methodology)
 #
 # These wrap the already-validated dwell_bias / selection_bias by scoring the
 # participant's REAL value against a null distribution of synthetic values drawn
@@ -611,7 +611,7 @@ def dwell_percentile_ready(bias_logs, connected_at_ms, now_ms):
     module top here would create a cycle; the call-time local import avoids that.
 
     STANDALONE for now: intentionally NOT wired into on_interaction / should_trigger
-    (that integration is deferred pending Sung's should_trigger stub). Timestamps
+    (that integration is deferred pending the should_trigger stub). Timestamps
     are epoch milliseconds (bias_util.get_current_time()).
     """
     import dc_adapter  # local import: breaks the dc_metric<->dc_adapter cycle
@@ -688,7 +688,7 @@ def selection_bias_percentile(dc_map, selected_ids, n_trials=1000, rng=None):
 #
 # STANDALONE for now: it returns EVERY cell, unranked and unfiltered. Ranking
 # and the positive-VC notify filter are deliberately left to the caller, pending
-# the dwell-vs-selection split being settled with Sung -- nothing here is wired
+# the dwell-vs-selection split being settled with the team -- nothing here is wired
 # into a live path.
 # --------------------------------------------------------------------------- #
 def _belief_for_variable(beliefs, variable):

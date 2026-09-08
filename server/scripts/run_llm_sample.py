@@ -8,9 +8,9 @@ what you see here is what a participant would get.
 Usage (from the server/ directory, or anywhere -- the script adds its own dir to
 the import path):
 
-    python run_llm_sample.py llm_samples/sample_input_1_screen_time.json
-    python run_llm_sample.py llm_samples/sample_input_1_screen_time.json --dry-run
-    python run_llm_sample.py llm_samples/*.json          # shell glob, several at once
+    python scripts/run_llm_sample.py scripts/llm_samples/sample_input_1_screen_time.json
+    python scripts/run_llm_sample.py scripts/llm_samples/sample_input_1_screen_time.json --dry-run
+    python scripts/run_llm_sample.py scripts/llm_samples/*.json          # shell glob, several at once
 
 --dry-run prints only the assembled payload and never calls the API, so it works
 with no ANTHROPIC_API_KEY set. Without --dry-run it calls Claude and prints the
@@ -22,7 +22,7 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import llm_intervention
 

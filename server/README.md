@@ -1,6 +1,11 @@
 # Lumos Server
 
-This folder contains the Lumos backend code. It computes Wall et al.'s \[1\] metrics as a quantitative measure of analytic focus and establishes a bi-directional communication channel with the Lumos frontend.
+This folder contains the backend: the socket.io server, the belief-elicitation and
+belief-consistency metrics, the intervention trigger logic, and the LLM generation
+pipeline. It also serves the built frontend from `public/`.
+
+It is built on Lumos, originally designed by Narechania et al. \[1\]. The
+interaction-focus metrics are inherited from it \[2\].
 
 ## Requirements
 
@@ -35,4 +40,22 @@ This folder contains the Lumos backend code. It computes Wall et al.'s \[1\] met
 
 
 ### References
-\[1\] - Wall, Emily, et al. "Warning, bias may occur: A proposed approach to detecting cognitive bias in interactive visual analytics." 2017 IEEE Conference on Visual Analytics Science and Technology (VAST). IEEE, 2017.
+
+\[1\] - Narechania, Arpit and Coscia, Adam and Wall, Emily and Endert, Alex.
+"Lumos: Increasing Awareness of Analytic Behavior during Visual Data Analysis."
+*IEEE Transactions on Visualization and Computer Graphics* 28, no. 1 (2022): 1009-1018.
+
+```bibTeX
+@article{narechania2022lumos,
+  author={Narechania, Arpit and Coscia, Adam and Wall, Emily and Endert, Alex},
+  journal={{IEEE Transactions on Visualization and Computer Graphics}}, 
+  title={{Lumos: Increasing Awareness of Analytic Behavior during Visual Data Analysis}}, 
+  year={2022},
+  volume={28},
+  number={1},
+  pages={1009-1018},
+  doi={10.1109/TVCG.2021.3114827}
+}
+```
+
+\[2\] - Reference withheld for anonymous review.

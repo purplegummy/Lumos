@@ -344,7 +344,7 @@ async def on_task_submitted(sid, data):
               f" main_task_ms={main_task_duration_ms} main_engagement={main_engagement}")
 
         # --- SelectionBias at submit: computed ONCE here from the CACHED maps +
-        # the FINAL submitted selection (no DC recompute). Shiyao confirmed
+        # the FINAL submitted selection (no DC recompute). The study lead confirmed
         # selection_bias has no trigger policy -- it's a one-shot at submission.
         # The dependent measure is the PER-VARIABLE selection_bias_v (the
         # methodology moved to per-variable VC); the pooled percentile stays

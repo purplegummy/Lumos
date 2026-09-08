@@ -1,10 +1,10 @@
-"""Adapter + integration glue between Prasit's stored priors and the DC metric.
+"""Adapter + integration glue between the elicitation-stored priors and the DC metric.
 
 This module is deliberately SEPARATE from the validated math in dc_metric.py.
 dc_metric.py is frozen (its unit-tested functions must not change); everything
 here is reshape/plumbing that can evolve without touching the math.
 
-Prasit's merge stores priors as:
+The elicitation flow stores priors as:
 
     CLIENTS[pid]["priors"]["{attribute}::{condition}"] = PriorBelief
 
@@ -35,7 +35,7 @@ import dc_metric
 LABEL_ATTR = dc_metric.LABEL_ATTR
 
 # --------------------------------------------------------------------------- #
-# Reproducible seeding for the LIVE Monte-Carlo null-sampling paths (Shiyao's
+# Reproducible seeding for the LIVE Monte-Carlo null-sampling paths (study lead's
 # request). A single fixed seed, single-sourced here and shared by every live call
 # site, so a given check's percentile depends ONLY on its inputs + this seed --
 # never on call order or how many draws happened earlier in the session. This is a
@@ -64,7 +64,7 @@ def live_rng():
 # attribute names -- the elicitation UI defines which six, minus the label.)
 EXPECTED_VARIABLE_COUNT = 6
 
-# Prasit's condition strings -> the group keys dc_metric's contract uses.
+# The elicitation condition strings -> the group keys dc_metric's contract uses.
 CONDITION_TO_GROUP = {
     "diagnosed": "diagnosed",
     "not_diagnosed": "nonDiagnosed",
@@ -317,7 +317,7 @@ def compute_dwell_metrics(detailed_map, bias_logs):
     DwellBias they are supposed to break down. Weighted, they decompose it exactly
     (sum_v score[v] / sum_v w_v == dwell_bias), which is what makes them readable as
     each variable's contribution. Set here rather than in dc_metric: the flag exists
-    so callers can choose, and the default stays Lester's.
+    so callers can choose, and the default stays as originally implemented.
 
     Returns a plain dict for embedding in the interaction response's output_data:
 

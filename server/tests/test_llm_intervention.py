@@ -8,6 +8,12 @@ ranges widen, and what the summary names. The Claude call itself is not exercise
 here (it needs an API key and is off the critical path), and neither is
 dc_metric.bin_group_candidates, which has its own tests.
 """
+# Run either as `python -m pytest` from server/ or directly as `python tests/<file>.py`;
+# both need server/ itself on sys.path, since this file no longer sits beside the
+# modules it imports. pytest's conftest mechanism would not cover direct invocation.
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+
 from llm_intervention import (
     select_candidate_cell,
     _variable_for_filter_ranges,

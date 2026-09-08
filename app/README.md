@@ -23,5 +23,5 @@ This folder contains the Lumos frontend code.
 
 
 ## Build and Deployment
-- Ensure that the `src/app/models/config.ts` > `DeploymentConfig.SERVER_URL` variable is correctly set to the aforementioned server's URL (https://lumos-webapp-4aeadb3bf30d.herokuapp.com).
+- Ensure that the `src/app/models/config.ts` > `DeploymentConfig.SERVER_URL` variable points at the deployed backend, not `localhost` — it is baked into the bundle at build time. See [Deployment](../README.md#deployment) in the root README.
 - `ng build` - build the app and push the output into [angular.json](angular.json) > `outputPath` directory (default value = ["../server/public/"](../server/public/)). Follow instructions in the [../server/README.md](../server/README.md) for production deployment.

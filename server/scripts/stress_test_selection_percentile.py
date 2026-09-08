@@ -36,6 +36,12 @@ REUSE (no reimplementation): bias.read_data for loading (the same loader
 server.py uses to populate DATA_MAP), and the existing UNMODIFIED metric
 functions dc_metric.dc_map / selection_bias / selection_bias_percentile.
 """
+# Run from server/ as `python scripts/<file>.py`; server/ itself must be on sys.path,
+# since this file no longer sits beside the modules it imports. Note the data loader
+# (bias.read_data) still resolves `data/` relative to the CWD, so run from server/.
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+
 import argparse
 import random
 import time
